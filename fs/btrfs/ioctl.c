@@ -1440,6 +1440,9 @@ int btrfs_defrag_file(struct inode *inode, struct file *file,
 	} else if (range->compress_type == BTRFS_COMPRESS_ZSTD) {
 		btrfs_set_fs_incompat(fs_info, COMPRESS_ZSTD);
 	}
+	if (range->compress_type == BTRFS_COMPRESS_LZ4) {
+		btrfs_set_fs_incompat(root->fs_info, COMPRESS_LZ4);
+	}
 
 	ret = defrag_count;
 
