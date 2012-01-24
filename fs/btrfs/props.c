@@ -259,6 +259,10 @@ static int prop_compression_validate(const char *value, size_t len)
 
 	if (btrfs_compress_is_valid_type(value, len))
 		return 0;
+	else if (!strncmp("lz4", value, len))
+		return 0;
+	else if (!strncmp("lz4hc", value, len))
+		return 0;
 
 	return -EINVAL;
 }
@@ -285,6 +289,12 @@ static int prop_compression_apply(struct inode *inode, const char *value,
 	} else if (!strncmp("zstd", value, 4)) {
 		type = BTRFS_COMPRESS_ZSTD;
 		btrfs_set_fs_incompat(fs_info, COMPRESS_ZSTD);
+	} else if (!strncmp("lz4", value, len)) {
+		type = BTRFS_COMPRESS_LZ4;
+		btrfs_set_fs_incompat(fs_info, COMPRESS_LZ4);
+	} else if (!strncmp("lz4hc", value, len)) {
+		type = BTRFS_COMPRESS_LZ4HC;
+		btrfs_set_fs_incompat(fs_info, COMPRESS_LZ4);
 	} else {
 		return -EINVAL;
 	}
@@ -302,6 +312,8 @@ static const char *prop_compression_extract(struct inode *inode)
 	case BTRFS_COMPRESS_ZLIB:
 	case BTRFS_COMPRESS_LZO:
 	case BTRFS_COMPRESS_ZSTD:
+	case BTRFS_COMPRESS_LZ4:
+	case BTRFS_COMPRESS_LZ4HC:
 		return btrfs_compress_type2str(BTRFS_I(inode)->prop_compress);
 	default:
 		break;
