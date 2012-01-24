@@ -1905,6 +1905,8 @@ int btrfs_defrag_file(struct inode *inode, struct file_ra_state *ra,
 			btrfs_set_fs_incompat(fs_info, COMPRESS_LZO);
 		else if (range->compress_type == BTRFS_COMPRESS_ZSTD)
 			btrfs_set_fs_incompat(fs_info, COMPRESS_ZSTD);
+		else if (range->compress_type == BTRFS_COMPRESS_LZ4 || range->compress_type == BTRFS_COMPRESS_LZ4HC)
+			btrfs_set_fs_incompat(fs_info, COMPRESS_LZ4);
 		ret = sectors_defragged;
 	}
 	if (do_compress) {

@@ -32,7 +32,7 @@
 #include "subpage.h"
 #include "zoned.h"
 
-static const char* const btrfs_compress_types[] = { "", "zlib", "lzo", "zstd" };
+static const char* const btrfs_compress_types[] = { "", "zlib", "lzo", "zstd", "lz4", "lz4hc" };
 
 const char* btrfs_compress_type2str(enum btrfs_compression_type type)
 {
@@ -40,6 +40,8 @@ const char* btrfs_compress_type2str(enum btrfs_compression_type type)
 	case BTRFS_COMPRESS_ZLIB:
 	case BTRFS_COMPRESS_LZO:
 	case BTRFS_COMPRESS_ZSTD:
+	case BTRFS_COMPRESS_LZ4:
+	case BTRFS_COMPRESS_LZ4HC:
 	case BTRFS_COMPRESS_NONE:
 		return btrfs_compress_types[type];
 	default:
@@ -1091,6 +1093,8 @@ static const struct btrfs_compress_op * const btrfs_compress_op[] = {
 	&btrfs_zlib_compress,
 	&btrfs_lzo_compress,
 	&btrfs_zstd_compress,
+	&btrfs_lz4_compress,
+	&btrfs_lz4hc_compress,
 };
 
 static struct list_head *alloc_workspace(int type, unsigned int level)
