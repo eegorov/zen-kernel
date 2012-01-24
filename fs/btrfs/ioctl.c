@@ -1600,6 +1600,10 @@ error:
 	} else if (range->compress_type == BTRFS_COMPRESS_ZSTD) {
 		btrfs_set_fs_incompat(fs_info, COMPRESS_ZSTD);
 	}
+	if (range->compress_type == BTRFS_COMPRESS_LZ4 ||
+	    range->compress_type == BTRFS_COMPRESS_LZ4HC) {
+		btrfs_set_fs_incompat(fs_info, COMPRESS_LZ4);
+	}
 
 out_ra:
 	if (do_compress) {
