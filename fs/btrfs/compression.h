@@ -105,7 +105,10 @@ enum btrfs_compression_type {
 	BTRFS_COMPRESS_ZLIB  = 1,
 	BTRFS_COMPRESS_LZO   = 2,
 	BTRFS_COMPRESS_ZSTD  = 3,
-	BTRFS_NR_COMPRESS_TYPES = 4,
+	BTRFS_COMPRESS_LZ4   = 4,
+	BTRFS_COMPRESS_LZ4HC = 5,
+	BTRFS_COMPRESS_TYPES = 6,
+	BTRFS_NR_COMPRESS_TYPES = 7,
 };
 
 struct workspace_manager {
@@ -135,6 +138,8 @@ struct btrfs_compress_op {
 extern const struct btrfs_compress_op btrfs_heuristic_compress;
 extern const struct btrfs_compress_op btrfs_zlib_compress;
 extern const struct btrfs_compress_op btrfs_lzo_compress;
+extern const struct btrfs_compress_op btrfs_lz4_compress;
+extern const struct btrfs_compress_op btrfs_lz4hc_compress;
 extern const struct btrfs_compress_op btrfs_zstd_compress;
 
 const char* btrfs_compress_type2str(enum btrfs_compression_type type);
