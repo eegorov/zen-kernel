@@ -101,8 +101,9 @@ enum btrfs_compression_type {
 	BTRFS_COMPRESS_LZO   = 2,
 	BTRFS_COMPRESS_ZSTD  = 3,
 	BTRFS_COMPRESS_LZ4   = 4,
-	BTRFS_COMPRESS_TYPES = 5,
-	BTRFS_COMPRESS_LAST  = 5,
+	BTRFS_COMPRESS_LZ4HC = 5,
+	BTRFS_COMPRESS_TYPES = 6,
+	BTRFS_COMPRESS_LAST  = 6,
 };
 
 struct btrfs_compress_op {
