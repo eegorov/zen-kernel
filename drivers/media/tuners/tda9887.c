@@ -85,8 +85,8 @@ struct tvnorm {
 
 
 //// second reg (c)
-#define cDeemphasisOFF          0x00    // bit c5
-#define cDeemphasisON           0x20    // bit c5
+#define cDeemphasisOFF          0x20    // bit c5
+#define cDeemphasisON           0x00    // bit c5
 
 #define cDeemphasis75           0x00    // bit c6
 #define cDeemphasis50           0x40    // bit c6
