@@ -470,7 +470,7 @@ out:
 	return ret;
 }
 
-struct btrfs_compress_op btrfs_lz4_compress = {
+const struct btrfs_compress_op btrfs_lz4_compress = {
 	.alloc_workspace	= lz4_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4_compress_pages,
@@ -478,7 +478,7 @@ struct btrfs_compress_op btrfs_lz4_compress = {
 	.decompress		= lz4_decompress_wrapper,
 };
 
-struct btrfs_compress_op btrfs_lz4hc_compress = {
+const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.alloc_workspace	= lz4hc_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4hc_compress_pages,
