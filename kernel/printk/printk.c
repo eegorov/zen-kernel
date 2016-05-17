@@ -2511,7 +2511,7 @@ asmlinkage __visible void early_printk(const char *fmt, ...)
 	n = vscnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	early_console->write(early_console, buf, n);
+	early_console->write(early_console, buf, n, 0);
 }
 #endif
 
@@ -3115,7 +3115,7 @@ static bool console_emit_next_record(struct console *con, bool *handover, int co
 		 * or lockdep complaints.
 		 */
 
-		con->write(con, outbuf, pmsg.outbuf_len);
+		con->write(con, outbuf, pmsg.outbuf_len, pmsg.level);
 		con->seq = pmsg.seq + 1;
 	} else {
 		/*
@@ -3135,7 +3135,7 @@ static bool console_emit_next_record(struct console *con, bool *handover, int co
 		stop_critical_timings();
 
 		printk_legacy_allow_spinlock_enter();
-		con->write(con, outbuf, pmsg.outbuf_len);
+		con->write(con, outbuf, pmsg.outbuf_len, pmsg.level);
 		printk_legacy_allow_spinlock_exit();
 
 		start_critical_timings();
