@@ -872,7 +872,7 @@ retry:
 	return ret;
 }
 
-static void early_xdbc_write(struct console *con, const char *str, u32 n)
+static void early_xdbc_write(struct console *con, const char *str, u32 n, u32 color)
 {
 	static char buf[XDBC_MAX_PACKET];
 	int chunk, ret;
