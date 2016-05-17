@@ -2411,7 +2411,7 @@ asmlinkage __visible void early_printk(const char *fmt, ...)
 	n = vscnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	early_console->write(early_console, buf, n);
+	early_console->write(early_console, buf, n, 0);
 }
 #endif
 
@@ -2910,7 +2910,7 @@ static bool console_emit_next_record(struct console *con, bool *handover, int co
 	stop_critical_timings();
 
 	/* Write everything out to the hardware. */
-	con->write(con, outbuf, pmsg.outbuf_len);
+	con->write(con, outbuf, pmsg.outbuf_len, r.info->level);
 
 	start_critical_timings();
 
