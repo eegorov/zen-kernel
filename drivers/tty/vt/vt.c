@@ -72,6 +72,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/types.h>
 #include <linux/sched/signal.h>
 #include <linux/tty.h>
@@ -3209,16 +3210,44 @@ int vt_kmsg_redirect(int new)
 		return kmsg_con;
 }
 
+#ifdef CONFIG_VT_CKO
+static unsigned int printk_color[8] __read_mostly = {
+	CONFIG_VT_PRINTK_EMERG_COLOR,	/* KERN_EMERG */
+	CONFIG_VT_PRINTK_ALERT_COLOR,	/* KERN_ALERT */
+	CONFIG_VT_PRINTK_CRIT_COLOR,	/* KERN_CRIT */
+	CONFIG_VT_PRINTK_ERR_COLOR,	/* KERN_ERR */
+	CONFIG_VT_PRINTK_WARNING_COLOR,	/* KERN_WARNING */
+	CONFIG_VT_PRINTK_NOTICE_COLOR,	/* KERN_NOTICE */
+	CONFIG_VT_PRINTK_INFO_COLOR,	/* KERN_INFO */
+	CONFIG_VT_PRINTK_DEBUG_COLOR,	/* KERN_DEBUG */
+};
+module_param_array(printk_color, uint, NULL, S_IRUGO | S_IWUSR);
+
+static inline void vc_set_color(struct vc_data *vc, unsigned char color)
+{
+	vc->state.color = color_table[color & 0xF] |
+	               (color_table[(color >> 4) & 0x7] << 4) |
+	               (color & 0x80);
+	update_attr(vc);
+}
+#else
+static unsigned int printk_color[8];
+static inline void vc_set_color(const struct vc_data *vc, unsigned char c)
+{
+}
+#endif
+
 /*
  *	Console on virtual terminal
  *
  * The console must be locked when we get here.
  */
 
-static void vt_console_print(struct console *co, const char *b, unsigned count)
+static void vt_console_print(struct console *co, const char *b, unsigned count,
+			     unsigned int loglevel)
 {
 	struct vc_data *vc = vc_cons[fg_console].d;
-	unsigned char c;
+	unsigned char current_color, c;
 	static DEFINE_SPINLOCK(printing_lock);
 	const ushort *start;
 	ushort start_x, cnt;
@@ -3250,10 +3279,19 @@ static void vt_console_print(struct console *co, const char *b, unsigned count)
 	start = (ushort *)vc->vc_pos;
 	start_x = vc->state.x;
 	cnt = 0;
+
+        /*
+         * We always get a valid loglevel - <8> and "no level" is transformed
+         * to <4> in the typical kernel.
+         */
+        current_color = printk_color[loglevel];
+        vc_set_color(vc, current_color);
+
 	while (count--) {
 		c = *b++;
 		if (c == ASCII_LINEFEED || c == ASCII_CAR_RET ||
 		    c == ASCII_BACKSPACE || vc->vc_need_wrap) {
+			vc_set_color(vc, vc->vc_def_color);
 			if (cnt && con_is_visible(vc))
 				vc->vc_sw->con_putcs(vc, start, cnt, vc->state.y, start_x);
 			cnt = 0;
@@ -3261,6 +3299,7 @@ static void vt_console_print(struct console *co, const char *b, unsigned count)
 				bs(vc);
 				start = (ushort *)vc->vc_pos;
 				start_x = vc->state.x;
+				vc_set_color(vc, current_color);
 				continue;
 			}
 			if (c != ASCII_CAR_RET)
@@ -3268,6 +3307,7 @@ static void vt_console_print(struct console *co, const char *b, unsigned count)
 			cr(vc);
 			start = (ushort *)vc->vc_pos;
 			start_x = vc->state.x;
+			vc_set_color(vc, current_color);
 			if (c == ASCII_LINEFEED || c == ASCII_CAR_RET)
 				continue;
 		}
@@ -3284,6 +3324,7 @@ static void vt_console_print(struct console *co, const char *b, unsigned count)
 	}
 	if (cnt && con_is_visible(vc))
 		vc->vc_sw->con_putcs(vc, start, cnt, vc->state.y, start_x);
+	vc_set_color(vc, vc->vc_def_color);
 	set_cursor(vc);
 	notify_update(vc);
 
