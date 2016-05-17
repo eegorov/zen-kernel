@@ -932,7 +932,7 @@ int kgdb_nmicallin(int cpu, int trapnr, void *regs, int err_code,
 NOKPROBE_SYMBOL(kgdb_nmicallin);
 
 static void kgdb_console_write(struct console *co, const char *s,
-   unsigned count)
+   unsigned count, unsigned int color)
 {
 	unsigned long flags;
 
