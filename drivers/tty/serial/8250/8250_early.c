@@ -101,7 +101,7 @@ static void serial_putc(struct uart_port *port, int c)
 }
 
 static void early_serial8250_write(struct console *console,
-					const char *s, unsigned int count)
+          const char *s, unsigned int count, unsigned int loglevel)
 {
 	struct earlycon_device *device = console->data;
 	struct uart_port *port = &device->port;
