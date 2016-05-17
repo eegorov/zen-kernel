@@ -905,7 +905,7 @@ int __init early_dbgp_init(char *s)
 	return 0;
 }
 
-static void early_dbgp_write(struct console *con, const char *str, u32 n)
+static void early_dbgp_write(struct console *con, const char *str, u32 n, u32 color)
 {
 	int chunk;
 	char buf[DBGP_MAX_PACKET];
@@ -1028,7 +1028,7 @@ static int kgdbdbgp_read_char(void)
 
 static void kgdbdbgp_write_char(u8 chr)
 {
-	early_dbgp_write(NULL, &chr, 1);
+	early_dbgp_write(NULL, &chr, 1, 0);
 }
 
 static struct kgdb_io kgdbdbgp_io_ops = {
