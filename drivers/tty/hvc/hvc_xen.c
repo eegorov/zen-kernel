@@ -616,7 +616,7 @@ static int __init xenboot_setup_console(struct console *console, char *string)
 }
 
 static void xenboot_write_console(struct console *console, const char *string,
-				  unsigned len)
+				  unsigned len, unsigned loglevel)
 {
 	unsigned int linelen, off = 0;
 	const char *pos;
@@ -680,7 +680,8 @@ void xen_raw_printk(const char *fmt, ...)
 
 static void xenboot_earlycon_write(struct console *console,
 				  const char *string,
-				  unsigned len)
+				  unsigned len,
+				  unsigned loglevel)
 {
 	dom0_write_console(0, string, len);
 }
