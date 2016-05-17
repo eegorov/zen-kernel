@@ -817,7 +817,7 @@ static void send_ext_msg_udp(struct netconsole_target *nt, const char *msg,
 }
 
 static void write_ext_msg(struct console *con, const char *msg,
-			  unsigned int len)
+			  unsigned int len, unsigned int loglevel)
 {
 	struct netconsole_target *nt;
 	unsigned long flags;
@@ -832,7 +832,8 @@ static void write_ext_msg(struct console *con, const char *msg,
 	spin_unlock_irqrestore(&target_list_lock, flags);
 }
 
-static void write_msg(struct console *con, const char *msg, unsigned int len)
+static void write_msg(struct console *con, const char *msg, unsigned int len,
+                      unsigned int loglevel)
 {
 	int frag, left;
 	unsigned long flags;
