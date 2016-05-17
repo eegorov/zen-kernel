@@ -699,7 +699,7 @@ kdb_printit:
 			}
 		}
 		for_each_console(c) {
-			c->write(c, cp, retlen - (cp - kdb_buffer));
+			c->write(c, cp, retlen - (cp - kdb_buffer), 7); /* 7 == KERN_DEBUG */
 			touch_nmi_watchdog();
 		}
 	}
@@ -761,7 +761,7 @@ kdb_printit:
 			}
 		}
 		for_each_console(c) {
-			c->write(c, moreprompt, strlen(moreprompt));
+			c->write(c, moreprompt, strlen(moreprompt), 7); /* 7 == KERN_DEBUG */
 			touch_nmi_watchdog();
 		}
 
