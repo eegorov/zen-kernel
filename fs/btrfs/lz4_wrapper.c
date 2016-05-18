@@ -132,7 +132,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	*total_out = 0;
 	*total_in = 0;
 
-	in_page = find_get_page(mapping, start >> PAGE_CACHE_SHIFT);
+	in_page = find_get_page(mapping, start >> PAGE_SHIFT);
 	data_in = kmap(in_page);
 
 	/*
@@ -149,10 +149,10 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	tot_out = LZ4_LEN;
 	pages[0] = out_page;
 	nr_pages = 1;
-	pg_bytes_left = PAGE_CACHE_SIZE - LZ4_LEN;
+	pg_bytes_left = PAGE_SIZE - LZ4_LEN;
 
 	/* compress at most one page of data each time */
-	in_len = min(len, PAGE_CACHE_SIZE);
+	in_len = min(len, PAGE_SIZE);
 	while (tot_in < len) {
 		if (hi)
 			ret = lz4hc_compress(data_in, in_len, workspace->cbuf,
@@ -222,7 +222,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 				cpage_out = kmap(out_page);
 				pages[nr_pages++] = out_page;
 
-				pg_bytes_left = PAGE_CACHE_SIZE;
+				pg_bytes_left = PAGE_SIZE;
 				out_offset = 0;
 			}
 		}
@@ -240,12 +240,12 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 
 		bytes_left = len - tot_in;
 		kunmap(in_page);
-		page_cache_release(in_page);
+		put_page(in_page);
 
-		start += PAGE_CACHE_SIZE;
-		in_page = find_get_page(mapping, start >> PAGE_CACHE_SHIFT);
+		start += PAGE_SIZE;
+		in_page = find_get_page(mapping, start >> PAGE_SHIFT);
 		data_in = kmap(in_page);
-		in_len = min(bytes_left, PAGE_CACHE_SIZE);
+		in_len = min(bytes_left, PAGE_SIZE);
 	}
 
 	if (tot_out > tot_in)
@@ -267,7 +267,7 @@ out:
 
 	if (in_page) {
 		kunmap(in_page);
-		page_cache_release(in_page);
+		put_page(in_page);
 	}
 
 	return ret;
@@ -315,8 +315,8 @@ static int lz4_decompress_biovec(struct list_head *ws,
 	char *data_in;
 	unsigned long page_in_index = 0;
 	unsigned long page_out_index = 0;
-	unsigned long total_pages_in = (srclen + PAGE_CACHE_SIZE - 1) /
-					PAGE_CACHE_SIZE;
+	unsigned long total_pages_in = (srclen + PAGE_SIZE - 1) /
+					PAGE_SIZE;
 	unsigned long buf_start;
 	unsigned long buf_offset = 0;
 	unsigned long bytes;
@@ -339,7 +339,7 @@ static int lz4_decompress_biovec(struct list_head *ws,
 	tot_in = LZ4_LEN;
 	in_offset = LZ4_LEN;
 	tot_len = min_t(size_t, srclen, tot_len);
-	in_page_bytes_left = PAGE_CACHE_SIZE - LZ4_LEN;
+	in_page_bytes_left = PAGE_SIZE - LZ4_LEN;
 
 	tot_out = 0;
 	pg_offset = 0;
@@ -395,7 +395,7 @@ cont:
 
 				data_in = kmap(pages_in[++page_in_index]);
 
-				in_page_bytes_left = PAGE_CACHE_SIZE;
+				in_page_bytes_left = PAGE_SIZE;
 				in_offset = 0;
 			}
 		}
