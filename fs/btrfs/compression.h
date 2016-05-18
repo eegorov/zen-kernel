@@ -107,8 +107,7 @@ enum btrfs_compression_type {
 	BTRFS_COMPRESS_ZSTD  = 3,
 	BTRFS_COMPRESS_LZ4   = 4,
 	BTRFS_COMPRESS_LZ4HC = 5,
-	BTRFS_COMPRESS_TYPES = 6,
-	BTRFS_NR_COMPRESS_TYPES = 7,
+	BTRFS_NR_COMPRESS_TYPES = 6, 
 };
 
 struct workspace_manager {
