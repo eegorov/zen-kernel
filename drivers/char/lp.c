@@ -811,7 +811,7 @@ static const struct file_operations lp_fops = {
 /* The console must be locked when we get here. */
 
 static void lp_console_write(struct console *co, const char *s,
-			     unsigned count)
+			      unsigned count, unsigned loglevel)
 {
 	struct pardevice *dev = lp_table[CONSOLE_LP].dev;
 	struct parport *port = dev->port;
