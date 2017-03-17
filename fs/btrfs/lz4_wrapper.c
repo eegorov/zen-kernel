@@ -303,18 +303,16 @@ static int lz4hc_compress_pages(struct list_head *ws,
 				max_out, 1);
 }
 
-static int lz4_decompress_biovec(struct list_head *ws,
+static int lz4_decompress_bio(struct list_head *ws,
 				 struct page **pages_in,
 				 u64 disk_start,
-				 struct bio_vec *bvec,
-				 int vcnt,
+				 struct bio *bvec,
 				 size_t srclen)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret = 0, ret2;
 	char *data_in;
 	unsigned long page_in_index = 0;
-	unsigned long page_out_index = 0;
 	unsigned long total_pages_in = (srclen + PAGE_SIZE - 1) /
 					PAGE_SIZE;
 	unsigned long buf_start;
@@ -416,8 +414,7 @@ cont:
 
 		ret2 = btrfs_decompress_buf2page(workspace->buf, buf_start,
 						 tot_out, disk_start,
-						 bvec, vcnt,
-						 &page_out_index, &pg_offset);
+						 bvec);
 		if (ret2 == 0)
 			break;
 	}
@@ -474,7 +471,7 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 	.alloc_workspace	= lz4_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4_compress_pages,
-	.decompress_biovec	= lz4_decompress_biovec,
+	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress_wrapper,
 };
 
@@ -482,6 +479,6 @@ const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.alloc_workspace	= lz4hc_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4hc_compress_pages,
-	.decompress_biovec	= lz4_decompress_biovec,
+	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress_wrapper,
 };
