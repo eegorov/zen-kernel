@@ -91,7 +91,7 @@ static inline void write_compress_length(char *buf, size_t len)
 	memcpy(buf, &dlen, LZ4_LEN);
 }
 
-static inline size_t read_compress_length(char *buf)
+static inline size_t read_compress_length(const char *buf)
 {
 	__le32 dlen;
 
@@ -164,8 +164,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 					out_len, workspace->mem);
 		out_len = ret;
 		if (ret == 0) {
-			printk(KERN_DEBUG
-				"btrfs: lz4 compress in loop returned %d\n",
+			pr_debug("BTRFS: lz4 compress in loop returned %d\n",
 			       ret);
 			ret = -EIO;
 			goto out;
@@ -214,7 +213,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 				kunmap(out_page);
 				if (nr_pages == nr_dest_pages) {
 					out_page = NULL;
-					ret = -1;
+					ret = -E2BIG;
 					goto out;
 				}
 
@@ -232,8 +231,10 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 		}
 
 		/* we're making it bigger, give up */
-		if (tot_in > 8192 && tot_in < tot_out)
+		if (tot_in > 8192 && tot_in < tot_out) {
+			ret = -E2BIG;
 			goto out;
+		}
 
 		/* we're all done */
 		if (tot_in >= len)
@@ -304,20 +305,18 @@ static int lz4hc_compress_pages(struct list_head *ws,
 static int lz4_decompress_bio(struct list_head *ws,
 				 struct page **pages_in,
 				 u64 disk_start,
-				 struct bio *bvec,
+				 struct bio *orig_bio,
 				 size_t srclen)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret = 0, ret2;
 	char *data_in;
 	unsigned long page_in_index = 0;
-	unsigned long total_pages_in = (srclen + PAGE_SIZE - 1) /
-					PAGE_SIZE;
+	unsigned long total_pages_in = DIV_ROUND_UP(srclen, PAGE_SIZE);
 	unsigned long buf_start;
 	unsigned long buf_offset = 0;
 	unsigned long bytes;
 	unsigned long working_bytes;
-	unsigned long pg_offset;
 
 	size_t in_len;
 	size_t out_len;
@@ -338,7 +337,6 @@ static int lz4_decompress_bio(struct list_head *ws,
 	in_page_bytes_left = PAGE_SIZE - LZ4_LEN;
 
 	tot_out = 0;
-	pg_offset = 0;
 
 	while (tot_in < tot_len) {
 		in_len = read_compress_length(data_in + in_offset);
@@ -380,7 +378,7 @@ cont:
 					break;
 
 				if (page_in_index + 1 >= total_pages_in) {
-					ret = -1;
+					ret = -EIO;
 					goto done;
 				}
 
@@ -403,7 +401,7 @@ cont:
 		if (need_unmap)
 			kunmap(pages_in[page_in_index - 1]);
 		if (ret < 0) {
-			printk(KERN_WARNING "btrfs: lz4 decompress bio failed\n");
+			pr_warn("BTRFS: lz4 decompress bio failed\n");
 			ret = -EIO;
 			break;
 		}
@@ -413,13 +411,14 @@ cont:
 		tot_out += out_len;
 
 		ret2 = btrfs_decompress_buf2page(workspace->buf, buf_start,
-						 tot_out, disk_start,
-						 bvec);
+						 tot_out, disk_start, orig_bio);
 		if (ret2 == 0)
 			break;
 	}
 done:
 	kunmap(pages_in[page_in_index]);
+	if (!ret)
+		zero_fill_bio(orig_bio);
 	return ret;
 }
 
@@ -449,7 +448,7 @@ static int lz4_decompress_wrapper(struct list_head *ws, unsigned char *data_in,
 			out_len);
 	out_len = ret;
 	if (ret < 0) {
-		printk(KERN_WARNING "btrfs: lz4 decompress failed\n");
+		pr_warn("BTRFS: lz4 decompress failed\n");
 		ret = -EIO;
 		goto out;
 	}
@@ -459,11 +458,23 @@ static int lz4_decompress_wrapper(struct list_head *ws, unsigned char *data_in,
 		ret = -EIO;
 		goto out;
 	}
-
+	/*
+	 * the caller is already checking against PAGE_SIZE, but lets
+	 * move this check closer to the memcpy/memset
+	 */
+	destlen = min_t(unsigned long, destlen, PAGE_SIZE);
 	bytes = min_t(unsigned long, destlen, out_len - start_byte);
 
 	kaddr = kmap_atomic(dest_page);
 	memcpy(kaddr, workspace->buf + start_byte, bytes);
+
+	/*
+	 * btrfs_getblock is doing a zero on the tail of the page too,
+	 * but this will cover anything missing from the decompressed
+	 * data.
+	 */
+	if (bytes < destlen)
+		memset(kaddr+bytes, 0, destlen-bytes);
 	kunmap_atomic(kaddr);
 out:
 	return ret;
