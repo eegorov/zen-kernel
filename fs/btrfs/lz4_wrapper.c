@@ -313,8 +313,7 @@ static int lz4_decompress_bio(struct list_head *ws,
 	int ret = 0, ret2;
 	char *data_in;
 	unsigned long page_in_index = 0;
-	unsigned long total_pages_in = (srclen + PAGE_SIZE - 1) /
-					PAGE_SIZE;
+	unsigned long total_pages_in = DIV_ROUND_UP(srclen, PAGE_SIZE);
 	unsigned long buf_start;
 	unsigned long buf_offset = 0;
 	unsigned long bytes;
