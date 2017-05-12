@@ -254,7 +254,6 @@ BTRFS_FEAT_ATTR_INCOMPAT(mixed_groups, MIXED_GROUPS);
 BTRFS_FEAT_ATTR_INCOMPAT(compress_lzo, COMPRESS_LZO);
 BTRFS_FEAT_ATTR_INCOMPAT(compress_zstd, COMPRESS_ZSTD);
 BTRFS_FEAT_ATTR_INCOMPAT(compress_lz4, COMPRESS_LZ4);
-BTRFS_FEAT_ATTR_INCOMPAT(compress_lz4hc, COMPRESS_LZ4HC);
 BTRFS_FEAT_ATTR_INCOMPAT(big_metadata, BIG_METADATA);
 BTRFS_FEAT_ATTR_INCOMPAT(extended_iref, EXTENDED_IREF);
 BTRFS_FEAT_ATTR_INCOMPAT(raid56, RAID56);
@@ -271,7 +270,6 @@ static struct attribute *btrfs_supported_feature_attrs[] = {
 	BTRFS_FEAT_ATTR_PTR(compress_lzo),
 	BTRFS_FEAT_ATTR_PTR(compress_zstd),
 	BTRFS_FEAT_ATTR_PTR(compress_lz4),
-	BTRFS_FEAT_ATTR_PTR(compress_lz4hc),
 	BTRFS_FEAT_ATTR_PTR(big_metadata),
 	BTRFS_FEAT_ATTR_PTR(extended_iref),
 	BTRFS_FEAT_ATTR_PTR(raid56),
