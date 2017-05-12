@@ -214,7 +214,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 				kunmap(out_page);
 				if (nr_pages == nr_dest_pages) {
 					out_page = NULL;
-					ret = -1;
+					ret = -E2BIG;
 					goto out;
 				}
 
@@ -232,8 +232,10 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 		}
 
 		/* we're making it bigger, give up */
-		if (tot_in > 8192 && tot_in < tot_out)
+		if (tot_in > 8192 && tot_in < tot_out) {
+			ret = -E2BIG;
 			goto out;
+		}
 
 		/* we're all done */
 		if (tot_in >= len)
@@ -380,7 +382,7 @@ cont:
 					break;
 
 				if (page_in_index + 1 >= total_pages_in) {
-					ret = -1;
+					ret = -EIO;
 					goto done;
 				}
 
