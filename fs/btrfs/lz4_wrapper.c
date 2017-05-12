@@ -305,7 +305,7 @@ static int lz4hc_compress_pages(struct list_head *ws,
 static int lz4_decompress_bio(struct list_head *ws,
 				 struct page **pages_in,
 				 u64 disk_start,
-				 struct bio *bvec,
+				 struct bio *orig_bio,
 				 size_t srclen)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
@@ -317,7 +317,6 @@ static int lz4_decompress_bio(struct list_head *ws,
 	unsigned long buf_offset = 0;
 	unsigned long bytes;
 	unsigned long working_bytes;
-	unsigned long pg_offset;
 
 	size_t in_len;
 	size_t out_len;
@@ -338,7 +337,6 @@ static int lz4_decompress_bio(struct list_head *ws,
 	in_page_bytes_left = PAGE_SIZE - LZ4_LEN;
 
 	tot_out = 0;
-	pg_offset = 0;
 
 	while (tot_in < tot_len) {
 		in_len = read_compress_length(data_in + in_offset);
@@ -413,15 +411,14 @@ cont:
 		tot_out += out_len;
 
 		ret2 = btrfs_decompress_buf2page(workspace->buf, buf_start,
-						 tot_out, disk_start,
-						 bvec);
+						 tot_out, disk_start, orig_bio);
 		if (ret2 == 0)
 			break;
 	}
 done:
 	kunmap(pages_in[page_in_index]);
 	if (!ret)
-	        btrfs_clear_biovec_end(bvec, vcnt, page_out_index, pg_offset);
+		zero_fill_bio(orig_bio);
 	return ret;
 }
 
