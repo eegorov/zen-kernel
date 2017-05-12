@@ -2666,8 +2666,8 @@ int open_ctree(struct super_block *sb,
 		features |= BTRFS_FEATURE_INCOMPAT_COMPRESS_LZO;
 	else if (fs_info->compress_type == BTRFS_COMPRESS_ZSTD)
 		features |= BTRFS_FEATURE_INCOMPAT_COMPRESS_ZSTD;
-	else if (tree_root->fs_info->compress_type == BTRFS_COMPRESS_LZ4 ||
-	    tree_root->fs_info->compress_type == BTRFS_COMPRESS_LZ4HC)
+	else if (fs_info->compress_type == BTRFS_COMPRESS_LZ4 ||
+	    fs_info->compress_type == BTRFS_COMPRESS_LZ4HC)
 		features |= BTRFS_FEATURE_INCOMPAT_COMPRESS_LZ4;
 
 	if (features & BTRFS_FEATURE_INCOMPAT_SKINNY_METADATA)

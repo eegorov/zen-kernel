@@ -412,7 +412,11 @@ static int prop_compression_apply(struct inode *inode,
 
 	if (!strncmp("lzo", value, 3))
 		type = BTRFS_COMPRESS_LZO;
-	else if (!strncmp("zlib", value, 4))
+	else if (!strncmp("lz4", value, len))
+		type = BTRFS_COMPRESS_LZ4;
+	else if (!strncmp("lz4hc", value, len))
+		type = BTRFS_COMPRESS_LZ4HC;
+	else if (!strncmp("zlib", value, len))
 		type = BTRFS_COMPRESS_ZLIB;
 	else if (!strncmp("zstd", value, len))
 		type = BTRFS_COMPRESS_ZSTD;
@@ -435,6 +439,10 @@ static const char *prop_compression_extract(struct inode *inode)
 		return "lzo";
 	case BTRFS_COMPRESS_ZSTD:
 		return "zstd";
+	case BTRFS_COMPRESS_LZ4:
+		return "lz4";
+	case BTRFS_COMPRESS_LZ4HC:
+		return "lz4hc";
 	}
 
 	return NULL;
