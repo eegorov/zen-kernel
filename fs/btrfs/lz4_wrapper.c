@@ -29,8 +29,7 @@
 #include "compression.h"
 
 #define LZ4_LEN		4
-#define LZ4_CHUNK_SIZE	(4096)
-#define LZ4_MAX_WORKBUF	2*LZ4_CHUNK_SIZE
+#define LZ4_MAX_WORKBUF	LZ4_COMPRESSBOUND(PAGE_SIZE)
 
 struct workspace {
 	void *mem;	/* work memory for compression */
@@ -102,13 +101,12 @@ static inline size_t read_compress_length(char *buf)
 
 static int lz4_compress_pages_generic(struct list_head *ws,
 			      struct address_space *mapping,
-			      u64 start, unsigned long len,
+			      u64 start,
 			      struct page **pages,
-			      unsigned long nr_dest_pages,
 			      unsigned long *out_pages,
 			      unsigned long *total_in,
 			      unsigned long *total_out,
-			      unsigned long max_out, int hi)
+			      int hi)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret = 0;
@@ -118,6 +116,9 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	struct page *in_page = NULL;
 	struct page *out_page = NULL;
 	unsigned long bytes_left;
+	unsigned long len = *total_out;
+	unsigned long nr_dest_pages = *out_pages;
+	const unsigned long max_out = nr_dest_pages * PAGE_SIZE;
 
 	size_t in_len;
 	size_t out_len;
@@ -154,19 +155,22 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	/* compress at most one page of data each time */
 	in_len = min(len, PAGE_SIZE);
 	while (tot_in < len) {
+		out_len = LZ4_MAX_WORKBUF;
 		if (hi)
-			ret = lz4hc_compress(data_in, in_len, workspace->cbuf,
-					&out_len, workspace->mem);
+			ret = LZ4_compress_HC(data_in, workspace->cbuf, in_len,
+					out_len, LZ4HC_DEFAULT_CLEVEL, workspace->mem);
 		else
-			ret = lz4_compress(data_in, in_len, workspace->cbuf, &out_len,
-					workspace->mem);
-		if (ret < 0) {
+			ret = LZ4_compress_default(data_in, workspace->cbuf, in_len,
+					out_len, workspace->mem);
+		out_len = ret;
+		if (ret == 0) {
 			printk(KERN_DEBUG
 				"btrfs: lz4 compress in loop returned %d\n",
 			       ret);
-			ret = -1;
+			ret = -EIO;
 			goto out;
 		}
+		ret = 0;
 
 		/* store the size of this chunk of compressed data */
 		write_compress_length(cpage_out + out_offset, out_len);
@@ -275,32 +279,26 @@ out:
 
 static int lz4_compress_pages(struct list_head *ws,
 			      struct address_space *mapping,
-			      u64 start, unsigned long len,
+			      u64 start,
 			      struct page **pages,
-			      unsigned long nr_dest_pages,
 			      unsigned long *out_pages,
 			      unsigned long *total_in,
-			      unsigned long *total_out,
-			      unsigned long max_out)
+			      unsigned long *total_out)
 {
-	return lz4_compress_pages_generic(ws, mapping, start, len, pages,
-				nr_dest_pages, out_pages, total_in, total_out,
-				max_out, 0);
+	return lz4_compress_pages_generic(ws, mapping, start, pages,
+				out_pages, total_in, total_out, 0);
 }
 
 static int lz4hc_compress_pages(struct list_head *ws,
 			      struct address_space *mapping,
-			      u64 start, unsigned long len,
+			      u64 start,
 			      struct page **pages,
-			      unsigned long nr_dest_pages,
 			      unsigned long *out_pages,
 			      unsigned long *total_in,
-			      unsigned long *total_out,
-			      unsigned long max_out)
+			      unsigned long *total_out)
 {
-	return lz4_compress_pages_generic(ws, mapping, start, len, pages,
-				nr_dest_pages, out_pages, total_in, total_out,
-				max_out, 1);
+	return lz4_compress_pages_generic(ws, mapping, start, pages,
+				out_pages, total_in, total_out, 1);
 }
 
 static int lz4_decompress_bio(struct list_head *ws,
@@ -398,16 +396,18 @@ cont:
 			}
 		}
 
-		out_len = LZ4_CHUNK_SIZE;
-		ret = lz4_decompress_unknownoutputsize(buf, in_len, workspace->buf,
-				&out_len);
+		out_len = LZ4_MAX_WORKBUF;
+		ret = LZ4_decompress_safe(buf, workspace->buf, in_len,
+				out_len);
+		out_len = ret;
 		if (need_unmap)
 			kunmap(pages_in[page_in_index - 1]);
 		if (ret < 0) {
-			printk(KERN_WARNING "btrfs: lz4 decompress failed\n");
-			ret = -1;
+			printk(KERN_WARNING "btrfs: lz4 decompress bio failed\n");
+			ret = -EIO;
 			break;
 		}
+		ret = 0;
 
 		buf_start = tot_out;
 		tot_out += out_len;
@@ -444,17 +444,19 @@ static int lz4_decompress_wrapper(struct list_head *ws, unsigned char *data_in,
 	in_len = read_compress_length(data_in);
 	data_in += LZ4_LEN;
 
-	out_len = LZ4_CHUNK_SIZE;
-	ret = lz4_decompress_unknownoutputsize(data_in, in_len, workspace->buf,
-			&out_len);
+	out_len = LZ4_MAX_WORKBUF;
+	ret = LZ4_decompress_safe(data_in, workspace->buf, in_len,
+			out_len);
+	out_len = ret;
 	if (ret < 0) {
 		printk(KERN_WARNING "btrfs: lz4 decompress failed\n");
-		ret = -1;
+		ret = -EIO;
 		goto out;
 	}
+	ret = 0;
 
 	if (out_len < start_byte) {
-		ret = -1;
+		ret = -EIO;
 		goto out;
 	}
 
