@@ -119,7 +119,6 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	unsigned long len = *total_out;
 	unsigned long nr_dest_pages = *out_pages;
 	const unsigned long max_out = nr_dest_pages * PAGE_SIZE;
-
 	size_t in_len;
 	size_t out_len;
 	char *buf;
@@ -317,7 +316,6 @@ static int lz4_decompress_bio(struct list_head *ws,
 	unsigned long buf_offset = 0;
 	unsigned long bytes;
 	unsigned long working_bytes;
-
 	size_t in_len;
 	size_t out_len;
 	unsigned long in_offset;
@@ -422,7 +420,7 @@ done:
 	return ret;
 }
 
-static int lz4_decompress_wrapper(struct list_head *ws, unsigned char *data_in,
+static int lz4_decompress(struct list_head *ws, unsigned char *data_in,
 			  struct page *dest_page,
 			  unsigned long start_byte,
 			  size_t srclen, size_t destlen)
@@ -485,7 +483,7 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4_compress_pages,
 	.decompress_bio		= lz4_decompress_bio,
-	.decompress		= lz4_decompress_wrapper,
+	.decompress		= lz4_decompress,
 };
 
 const struct btrfs_compress_op btrfs_lz4hc_compress = {
@@ -493,5 +491,5 @@ const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4hc_compress_pages,
 	.decompress_bio		= lz4_decompress_bio,
-	.decompress		= lz4_decompress_wrapper,
+	.decompress		= lz4_decompress,
 };
