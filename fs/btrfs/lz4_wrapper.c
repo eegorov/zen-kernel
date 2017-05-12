@@ -91,7 +91,7 @@ static inline void write_compress_length(char *buf, size_t len)
 	memcpy(buf, &dlen, LZ4_LEN);
 }
 
-static inline size_t read_compress_length(char *buf)
+static inline size_t read_compress_length(const char *buf)
 {
 	__le32 dlen;
 
