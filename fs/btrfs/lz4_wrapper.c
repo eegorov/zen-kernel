@@ -164,8 +164,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 					out_len, workspace->mem);
 		out_len = ret;
 		if (ret == 0) {
-			printk(KERN_DEBUG
-				"btrfs: lz4 compress in loop returned %d\n",
+			pr_debug("BTRFS: lz4 compress in loop returned %d\n",
 			       ret);
 			ret = -EIO;
 			goto out;
@@ -404,7 +403,7 @@ cont:
 		if (need_unmap)
 			kunmap(pages_in[page_in_index - 1]);
 		if (ret < 0) {
-			printk(KERN_WARNING "btrfs: lz4 decompress bio failed\n");
+			pr_warn("BTRFS: lz4 decompress bio failed\n");
 			ret = -EIO;
 			break;
 		}
@@ -450,7 +449,7 @@ static int lz4_decompress_wrapper(struct list_head *ws, unsigned char *data_in,
 			out_len);
 	out_len = ret;
 	if (ret < 0) {
-		printk(KERN_WARNING "btrfs: lz4 decompress failed\n");
+		pr_warn("BTRFS: lz4 decompress failed\n");
 		ret = -EIO;
 		goto out;
 	}
