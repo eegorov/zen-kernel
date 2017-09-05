@@ -19,13 +19,14 @@
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
-#include <linux/vmalloc.h>
+#include <linux/mm.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/sched.h>
 #include <linux/pagemap.h>
 #include <linux/bio.h>
 #include <linux/lz4.h>
+#include <linux/refcount.h>
 #include "compression.h"
 
 #define LZ4_LEN		4
@@ -42,9 +43,9 @@ static void lz4_free_workspace(struct list_head *ws)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 
-	vfree(workspace->buf);
-	vfree(workspace->cbuf);
-	vfree(workspace->mem);
+	kvfree(workspace->buf);
+	kvfree(workspace->cbuf);
+	kvfree(workspace->mem);
 	kfree(workspace);
 }
 
@@ -57,11 +58,11 @@ static struct list_head *lz4_alloc_workspace_generic(int hi)
 		return ERR_PTR(-ENOMEM);
 
 	if (hi)
-		workspace->mem = vmalloc(LZ4HC_MEM_COMPRESS);
+		workspace->mem = kvmalloc(LZ4HC_MEM_COMPRESS, GFP_KERNEL);
 	else
-		workspace->mem = vmalloc(LZ4_MEM_COMPRESS);
-	workspace->buf = vmalloc(LZ4_MAX_WORKBUF);
-	workspace->cbuf = vmalloc(LZ4_MAX_WORKBUF);
+		workspace->mem = kvmalloc(LZ4_MEM_COMPRESS, GFP_KERNEL);
+	workspace->buf = kvmalloc(LZ4_MAX_WORKBUF, GFP_KERNEL);
+	workspace->cbuf = kvmalloc(LZ4_MAX_WORKBUF, GFP_KERNEL);
 	if (!workspace->mem || !workspace->buf || !workspace->cbuf)
 		goto fail;
 
@@ -252,8 +253,10 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 		in_len = min(bytes_left, PAGE_SIZE);
 	}
 
-	if (tot_out > tot_in)
+	if (tot_out >= tot_in) {
+		ret = -E2BIG;
 		goto out;
+	}
 
 	/* store the size of all chunks of compressed data */
 	cpage_out = kmap(pages[0]);
@@ -301,16 +304,13 @@ static int lz4hc_compress_pages(struct list_head *ws,
 				out_pages, total_in, total_out, 1);
 }
 
-static int lz4_decompress_bio(struct list_head *ws,
-				 struct page **pages_in,
-				 u64 disk_start,
-				 struct bio *orig_bio,
-				 size_t srclen)
+static int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret = 0, ret2;
 	char *data_in;
 	unsigned long page_in_index = 0;
+	size_t srclen = cb->compressed_len;
 	unsigned long total_pages_in = DIV_ROUND_UP(srclen, PAGE_SIZE);
 	unsigned long buf_start;
 	unsigned long buf_offset = 0;
@@ -325,6 +325,9 @@ static int lz4_decompress_bio(struct list_head *ws,
 	unsigned long tot_len;
 	char *buf;
 	bool may_late_unmap, need_unmap;
+	struct page **pages_in = cb->compressed_pages;
+	u64 disk_start = cb->start;
+	struct bio *orig_bio = cb->orig_bio;
 
 	data_in = kmap(pages_in[0]);
 	tot_len = read_compress_length(data_in);
