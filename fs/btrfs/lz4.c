@@ -253,8 +253,10 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 		in_len = min(bytes_left, PAGE_SIZE);
 	}
 
-	if (tot_out > tot_in)
+	if (tot_out >= tot_in) {
+		ret = -E2BIG;
 		goto out;
+	}
 
 	/* store the size of all chunks of compressed data */
 	cpage_out = kmap(pages[0]);
