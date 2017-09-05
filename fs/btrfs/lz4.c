@@ -19,7 +19,7 @@
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
-#include <linux/vmalloc.h>
+#include <linux/mm.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/sched.h>
@@ -42,9 +42,9 @@ static void lz4_free_workspace(struct list_head *ws)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 
-	vfree(workspace->buf);
-	vfree(workspace->cbuf);
-	vfree(workspace->mem);
+	kvfree(workspace->buf);
+	kvfree(workspace->cbuf);
+	kvfree(workspace->mem);
 	kfree(workspace);
 }
 
@@ -57,11 +57,11 @@ static struct list_head *lz4_alloc_workspace_generic(int hi)
 		return ERR_PTR(-ENOMEM);
 
 	if (hi)
-		workspace->mem = vmalloc(LZ4HC_MEM_COMPRESS);
+		workspace->mem = kvmalloc(LZ4HC_MEM_COMPRESS, GFP_KERNEL);
 	else
-		workspace->mem = vmalloc(LZ4_MEM_COMPRESS);
-	workspace->buf = vmalloc(LZ4_MAX_WORKBUF);
-	workspace->cbuf = vmalloc(LZ4_MAX_WORKBUF);
+		workspace->mem = kvmalloc(LZ4_MEM_COMPRESS, GFP_KERNEL);
+	workspace->buf = kvmalloc(LZ4_MAX_WORKBUF, GFP_KERNEL);
+	workspace->cbuf = kvmalloc(LZ4_MAX_WORKBUF, GFP_KERNEL);
 	if (!workspace->mem || !workspace->buf || !workspace->cbuf)
 		goto fail;
 
