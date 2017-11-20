@@ -1548,7 +1548,8 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
  * log_buf[start] to log_buf[end - 1].
  * The console_lock must be held.
  */
-static void call_console_drivers(const char *ext_text, size_t ext_len,
+static void call_console_drivers(int level,
+				 const char *ext_text, size_t ext_len,
 				 const char *text, size_t len)
 {
 	struct console *con;
@@ -1569,9 +1570,9 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
 		    !(con->flags & CON_ANYTIME))
 			continue;
 		if (con->flags & CON_EXTENDED)
-			con->write(con, ext_text, ext_len);
+			con->write(con, ext_text, ext_len, level);
 		else
-			con->write(con, text, len);
+			con->write(con, text, len, level);
 	}
 }
 
@@ -1855,7 +1856,8 @@ static ssize_t msg_print_ext_header(char *buf, size_t size,
 static ssize_t msg_print_ext_body(char *buf, size_t size,
 				  char *dict, size_t dict_len,
 				  char *text, size_t text_len) { return 0; }
-static void call_console_drivers(const char *ext_text, size_t ext_len,
+static void call_console_drivers(int level,
+				 const char *ext_text, size_t ext_len,
 				 const char *text, size_t len) {}
 static size_t msg_print_text(const struct printk_log *msg,
 			     bool syslog, char *buf, size_t size) { return 0; }
@@ -1879,7 +1881,7 @@ asmlinkage __visible void early_printk(const char *fmt, ...)
 	n = vscnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	early_console->write(early_console, buf, n);
+	early_console->write(early_console, buf, n, 0);
 }
 #endif
 
@@ -2181,6 +2183,7 @@ again:
 		struct printk_log *msg;
 		size_t ext_len = 0;
 		size_t len;
+		int level;
 
 		printk_safe_enter_irqsave(flags);
 		raw_spin_lock(&logbuf_lock);
@@ -2204,7 +2207,8 @@ skip:
 			break;
 
 		msg = log_from_idx(console_idx);
-		if (suppress_message_printing(msg->level)) {
+		level = msg->level;
+		if (suppress_message_printing(level)) {
 			/*
 			 * Skip record we have buffered and already printed
 			 * directly to the console when we received it, and
@@ -2230,7 +2234,7 @@ skip:
 		raw_spin_unlock(&logbuf_lock);
 
 		stop_critical_timings();	/* don't trace print latency */
-		call_console_drivers(ext_text, ext_len, text, len);
+		call_console_drivers(level, ext_text, ext_len, text, len);
 		start_critical_timings();
 		printk_safe_exit_irqrestore(flags);
 
