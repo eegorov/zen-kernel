@@ -382,6 +382,8 @@ static void bfq_init_entity(struct bfq_entity *entity,
 		 * Make sure that bfqg and its associated blkg do not
 		 * disappear before entity.
 		 */
+		bfq_log_bfqq(bfqq->bfqd, bfqq, "[%s] getting bfqg %p and blkg\n", __func__, bfqg);
+
 		bfqg_and_blkg_get(bfqg);
 #else
 		bfqg_get(bfqg);
@@ -475,7 +477,6 @@ static struct blkg_policy_data *bfq_pd_alloc(gfp_t gfp, int node)
 		kfree(bfqg);
 		return NULL;
 	}
-
 #ifdef BFQ_MQ
 	/* see comments in bfq_bic_update_cgroup for why refcounting */
 	bfqg_get(bfqg);
@@ -650,6 +651,8 @@ static void bfq_bfqq_move(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 		bfq_put_idle_entity(bfq_entity_service_tree(entity), entity);
 	}
 #ifdef BFQ_MQ
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "[%s] putting blkg and bfqg %p\n", __func__, bfqg);
+
 	bfqg_and_blkg_put(bfqq_group(bfqq));
 #else
 	bfqg_put(bfqq_group(bfqq));
@@ -658,6 +661,8 @@ static void bfq_bfqq_move(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	entity->parent = bfqg->my_entity;
 	entity->sched_data = &bfqg->sched_data;
 #ifdef BFQ_MQ
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "[%s] getting blkg and bfqg %p\n", __func__, bfqg);
+
 	/* pin down bfqg and its associated blkg  */
 	bfqg_and_blkg_get(bfqg);
 #else
