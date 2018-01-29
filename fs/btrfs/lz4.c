@@ -481,12 +481,17 @@ out:
 	return ret;
 }
 
+static void lz4_set_level(struct list_head *ws, unsigned int type)
+{
+}
+
 const struct btrfs_compress_op btrfs_lz4_compress = {
 	.alloc_workspace	= lz4_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4_compress_pages,
 	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress,
+	.set_level              = lz4_set_level,
 };
 
 const struct btrfs_compress_op btrfs_lz4hc_compress = {
@@ -495,4 +500,5 @@ const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.compress_pages		= lz4hc_compress_pages,
 	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress,
+	.set_level              = lz4_set_level,
 };
