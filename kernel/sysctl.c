@@ -157,6 +157,11 @@ extern char fbcon_decor_path[];
 #ifdef CONFIG_INOTIFY_USER
 #include <linux/inotify.h>
 #endif
+
+#ifdef CONFIG_ALPHA_UAC_SYSCTL
+extern struct ctl_table uac_table[];
+#endif
+
 #ifdef CONFIG_SPARC
 #endif
 
@@ -1881,6 +1886,13 @@ static struct ctl_table debug_table[] = {
 		.extra2		= &one,
 	},
 #endif
+#ifdef CONFIG_ALPHA_UAC_SYSCTL
+	{
+	        .procname   = "uac",
+		.mode       = 0555,
+	        .child      = uac_table,
+	 },
+#endif /* CONFIG_ALPHA_UAC_SYSCTL */
 	{ }
 };
 
