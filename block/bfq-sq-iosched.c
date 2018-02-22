@@ -127,6 +127,12 @@ static const int bfq_timeout = (HZ / 8);
  */
 static const unsigned long bfq_merge_time_limit = HZ/10;
 
+#define MAX_LENGTH_REASON_NAME 25
+
+static const char reason_name[][MAX_LENGTH_REASON_NAME] = {"TOO_IDLE",
+"BUDGET_TIMEOUT", "BUDGET_EXHAUSTED", "NO_MORE_REQUESTS",
+"PREEMPTED"};
+
 static struct kmem_cache *bfq_pool;
 
 /* Below this threshold (in ns), we consider thinktime immediate. */
@@ -281,7 +287,7 @@ static void bfq_schedule_dispatch(struct bfq_data *bfqd);
 static void bfq_schedule_dispatch(struct bfq_data *bfqd)
 {
 	if (bfqd->queued != 0) {
-		bfq_log(bfqd, "schedule dispatch");
+		bfq_log(bfqd, "");
 		kblockd_schedule_work(&bfqd->unplug_work);
 	}
 }
@@ -414,7 +420,7 @@ bfq_rq_pos_tree_lookup(struct bfq_data *bfqd, struct rb_root *root,
 	if (rb_link)
 		*rb_link = p;
 
-	bfq_log(bfqd, "rq_pos_tree_lookup %llu: returning %d",
+	bfq_log(bfqd, "%llu: returning %d",
 		(unsigned long long) sector,
 		bfqq ? bfqq->pid : 0);
 
@@ -635,7 +641,7 @@ static struct request *bfq_check_fifo(struct bfq_queue *bfqq,
 	if (rq == last || ktime_get_ns() < rq->fifo_time)
 		return NULL;
 
-	bfq_log_bfqq(bfqq->bfqd, bfqq, "check_fifo: returned %p", rq);
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "returned %p", rq);
 	BUG_ON(RB_EMPTY_NODE(&rq->rb_node));
 	return rq;
 }
@@ -728,7 +734,7 @@ static void bfq_updated_next_req(struct bfq_data *bfqd,
 			   bfq_serv_to_charge(next_rq, bfqq));
 	if (entity->budget != new_budget) {
 		entity->budget = new_budget;
-		bfq_log_bfqq(bfqd, bfqq, "updated next rq: new budget %lu",
+		bfq_log_bfqq(bfqd, bfqq, "new budget %lu",
 					 new_budget);
 		bfq_requeue_bfqq(bfqd, bfqq, false);
 	}
@@ -800,8 +806,7 @@ bfq_bfqq_resume_state(struct bfq_queue *bfqq, struct bfq_data *bfqd,
 	BUG_ON(time_is_after_jiffies(bfqq->last_wr_start_finish));
 
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
-		     "[%s] bic %p wr_coeff %d start_finish %lu max_time %lu",
-		     __func__,
+		     "bic %p wr_coeff %d start_finish %lu max_time %lu",
 		     bic, bfqq->wr_coeff, bfqq->last_wr_start_finish,
 		     bfqq->wr_cur_max_time);
 
@@ -814,11 +819,11 @@ bfq_bfqq_resume_state(struct bfq_queue *bfqq, struct bfq_data *bfqd,
 					     bfq_wr_duration(bfqd))) {
 			switch_back_to_interactive_wr(bfqq, bfqd);
 			bfq_log_bfqq(bfqq->bfqd, bfqq,
-			     "resume state: switching back to interactive");
+			     "switching back to interactive");
 		} else {
 			bfqq->wr_coeff = 1;
 			bfq_log_bfqq(bfqq->bfqd, bfqq,
-			     "resume state: switching off wr (%lu + %lu < %lu)",
+			     "switching off wr (%lu + %lu < %lu)",
 			     bfqq->last_wr_start_finish, bfqq->wr_cur_max_time,
 			     jiffies);
 		}
@@ -870,7 +875,7 @@ static void bfq_add_to_burst(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 	/* Increment burst size to take into account also bfqq */
 	bfqd->burst_size++;
 
-	bfq_log_bfqq(bfqd, bfqq, "add_to_burst %d", bfqd->burst_size);
+	bfq_log_bfqq(bfqd, bfqq, "%d", bfqd->burst_size);
 
 	BUG_ON(bfqd->burst_size > bfqd->bfq_large_burst_thresh);
 
@@ -883,7 +888,7 @@ static void bfq_add_to_burst(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 		 * other to consider this burst as large.
 		 */
 		bfqd->large_burst = true;
-		bfq_log_bfqq(bfqd, bfqq, "add_to_burst: large burst started");
+		bfq_log_bfqq(bfqd, bfqq, "large burst started");
 
 		/*
 		 * We can now mark all queues in the burst list as
@@ -1055,7 +1060,7 @@ static void bfq_handle_burst(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 		bfqd->large_burst = false;
 		bfq_reset_burst_list(bfqd, bfqq);
 		bfq_log_bfqq(bfqd, bfqq,
-			"handle_burst: late activation or different group");
+			"late activation or different group");
 		goto end;
 	}
 
@@ -1065,7 +1070,7 @@ static void bfq_handle_burst(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 	 * bfqq as belonging to this large burst immediately.
 	 */
 	if (bfqd->large_burst) {
-		bfq_log_bfqq(bfqd, bfqq, "handle_burst: marked in burst");
+		bfq_log_bfqq(bfqd, bfqq, "marked in burst");
 		bfq_mark_bfqq_in_large_burst(bfqq);
 		goto end;
 	}
@@ -1572,7 +1577,7 @@ static void bfq_add_request(struct request *rq)
 	unsigned int old_wr_coeff = bfqq->wr_coeff;
 	bool interactive = false;
 
-	bfq_log_bfqq(bfqd, bfqq, "add_request: size %u %s",
+	bfq_log_bfqq(bfqd, bfqq, "size %u %s",
 		     blk_rq_sectors(rq), rq_is_sync(rq) ? "S" : "A");
 
 	if (bfqq->wr_coeff > 1) /* queue is being weight-raised */
@@ -1870,10 +1875,10 @@ static void bfq_bfqq_end_wr(struct bfq_queue *bfqq)
 	 */
 	bfqq->entity.prio_changed = 1;
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
-		     "end_wr: wrais ending at %lu, rais_max_time %u",
+		     "wrais ending at %lu, rais_max_time %u",
 		     bfqq->last_wr_start_finish,
 		     jiffies_to_msecs(bfqq->wr_cur_max_time));
-	bfq_log_bfqq(bfqq->bfqd, bfqq, "end_wr: wr_busy %d",
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "wr_busy %d",
 		     bfqq->bfqd->wr_busy_queues);
 }
 
@@ -2048,8 +2053,8 @@ static bool bfq_may_be_close_cooperator(struct bfq_queue *bfqq,
 {
 	if (bfq_too_late_for_merging(new_bfqq)) {
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			     "[%s] too late for bfq%d to be merged",
-			     __func__, new_bfqq->pid);
+			     "too late for bfq%d to be merged",
+				new_bfqq->pid);
 		return false;
 	}
 
@@ -2258,7 +2263,7 @@ bfq_merge_bfqqs(struct bfq_data *bfqd, struct bfq_io_cq *bic,
 
 	}
 
-	bfq_log_bfqq(bfqd, new_bfqq, "merge_bfqqs: wr_busy %d",
+	bfq_log_bfqq(bfqd, new_bfqq, "wr_busy %d",
 		     bfqd->wr_busy_queues);
 
 	/*
@@ -2359,7 +2364,7 @@ static void bfq_set_budget_timeout(struct bfq_data *bfqd,
 	bfqq->budget_timeout = jiffies +
 		bfqd->bfq_timeout * timeout_coeff;
 
-	bfq_log_bfqq(bfqd, bfqq, "set budget_timeout %u",
+	bfq_log_bfqq(bfqd, bfqq, "%u",
 		jiffies_to_msecs(bfqd->bfq_timeout * timeout_coeff));
 }
 
@@ -2427,10 +2432,10 @@ static void __bfq_set_in_service_queue(struct bfq_data *bfqd,
 
 		bfq_set_budget_timeout(bfqd, bfqq);
 		bfq_log_bfqq(bfqd, bfqq,
-			     "set_in_service_queue, cur-budget = %d",
+			     "cur-budget = %d",
 			     bfqq->entity.budget);
 	} else
-		bfq_log(bfqd, "set_in_service_queue: NULL");
+		bfq_log(bfqd, "NULL");
 
 	bfqd->in_service_queue = bfqq;
 }
@@ -2559,7 +2564,7 @@ static void bfq_reset_rate_computation(struct bfq_data *bfqd, struct request *rq
 		bfqd->peak_rate_samples = 0; /* full re-init on next disp. */
 
 	bfq_log(bfqd,
-		"reset_rate_computation at end, sample %u/%u tot_sects %llu",
+		"at end, sample %u/%u tot_sects %llu",
 		bfqd->peak_rate_samples, bfqd->sequential_samples,
 		bfqd->tot_sectors_dispatched);
 }
@@ -2579,7 +2584,7 @@ static void bfq_update_rate_reset(struct bfq_data *bfqd, struct request *rq)
 	if (bfqd->peak_rate_samples < BFQ_RATE_MIN_SAMPLES ||
 	    bfqd->delta_from_first < BFQ_RATE_MIN_INTERVAL) {
 		bfq_log(bfqd,
-	"update_rate_reset: only resetting, delta_first %lluus samples %d",
+	"only resetting, delta_first %lluus samples %d",
 			bfqd->delta_from_first>>10, bfqd->peak_rate_samples);
 		goto reset_computation;
 	}
@@ -2603,7 +2608,7 @@ static void bfq_update_rate_reset(struct bfq_data *bfqd, struct request *rq)
 			div_u64(bfqd->delta_from_first, NSEC_PER_USEC));
 
 	bfq_log(bfqd,
-"update_rate_reset: tot_sects %llu delta_first %lluus rate %llu sects/s (%d)",
+"tot_sects %llu delta_first %lluus rate %llu sects/s (%d)",
 		bfqd->tot_sectors_dispatched, bfqd->delta_from_first>>10,
 		((USEC_PER_SEC*(u64)rate)>>BFQ_RATE_SHIFT),
 		rate > 20<<BFQ_RATE_SHIFT);
@@ -2618,14 +2623,14 @@ static void bfq_update_rate_reset(struct bfq_data *bfqd, struct request *rq)
 	     rate <= bfqd->peak_rate) ||
 		rate > 20<<BFQ_RATE_SHIFT) {
 		bfq_log(bfqd,
-		"update_rate_reset: goto reset, samples %u/%u rate/peak %llu/%llu",
+		"goto reset, samples %u/%u rate/peak %llu/%llu",
 		bfqd->peak_rate_samples, bfqd->sequential_samples,
 		((USEC_PER_SEC*(u64)rate)>>BFQ_RATE_SHIFT),
 		((USEC_PER_SEC*(u64)bfqd->peak_rate)>>BFQ_RATE_SHIFT));
 		goto reset_computation;
 	} else {
 		bfq_log(bfqd,
-		"update_rate_reset: do update, samples %u/%u rate/peak %llu/%llu",
+		"do update, samples %u/%u rate/peak %llu/%llu",
 		bfqd->peak_rate_samples, bfqd->sequential_samples,
 		((USEC_PER_SEC*(u64)rate)>>BFQ_RATE_SHIFT),
 		((USEC_PER_SEC*(u64)bfqd->peak_rate)>>BFQ_RATE_SHIFT));
@@ -2681,7 +2686,7 @@ static void bfq_update_rate_reset(struct bfq_data *bfqd, struct request *rq)
 	rate /= divisor; /* smoothing constant alpha = 1/divisor */
 
 	bfq_log(bfqd,
-		"update_rate_reset: divisor %d tmp_peak_rate %llu tmp_rate %u",
+		"divisor %d tmp_peak_rate %llu tmp_rate %u",
 		divisor,
 		((USEC_PER_SEC*(u64)bfqd->peak_rate)>>BFQ_RATE_SHIFT),
 		(u32)((USEC_PER_SEC*(u64)rate)>>BFQ_RATE_SHIFT));
@@ -2735,7 +2740,7 @@ static void bfq_update_peak_rate(struct bfq_data *bfqd, struct request *rq)
 
 	if (bfqd->peak_rate_samples == 0) { /* first dispatch */
 		bfq_log(bfqd,
-		"update_peak_rate: goto reset, samples %d",
+		"goto reset, samples %d",
 				bfqd->peak_rate_samples) ;
 		bfq_reset_rate_computation(bfqd, rq);
 		goto update_last_values; /* will add one sample */
@@ -2756,7 +2761,7 @@ static void bfq_update_peak_rate(struct bfq_data *bfqd, struct request *rq)
 	if (now_ns - bfqd->last_dispatch > 100*NSEC_PER_MSEC &&
 	    bfqd->rq_in_driver == 0) {
 		bfq_log(bfqd,
-"update_peak_rate: jumping to updating&resetting delta_last %lluus samples %d",
+"jumping to updating&resetting delta_last %lluus samples %d",
 			(now_ns - bfqd->last_dispatch)>>10,
 			bfqd->peak_rate_samples) ;
 		goto update_rate_and_reset;
@@ -2782,7 +2787,7 @@ static void bfq_update_peak_rate(struct bfq_data *bfqd, struct request *rq)
 	bfqd->delta_from_first = now_ns - bfqd->first_dispatch;
 
 	bfq_log(bfqd,
-	"update_peak_rate: added samples %u/%u tot_sects %llu delta_first %lluus",
+	"added samples %u/%u tot_sects %llu delta_first %lluus",
 		bfqd->peak_rate_samples, bfqd->sequential_samples,
 		bfqd->tot_sectors_dispatched,
 		bfqd->delta_from_first>>10);
@@ -2798,12 +2803,12 @@ update_last_values:
 	bfqd->last_dispatch = now_ns;
 
 	bfq_log(bfqd,
-	"update_peak_rate: delta_first %lluus last_pos %llu peak_rate %llu",
+	"delta_first %lluus last_pos %llu peak_rate %llu",
 		(now_ns - bfqd->first_dispatch)>>10,
 		(unsigned long long) bfqd->last_position,
 		((USEC_PER_SEC*(u64)bfqd->peak_rate)>>BFQ_RATE_SHIFT));
 	bfq_log(bfqd,
-	"update_peak_rate: samples at end %d", bfqd->peak_rate_samples);
+	"samples at end %d", bfqd->peak_rate_samples);
 }
 
 /*
@@ -2900,11 +2905,11 @@ static void __bfq_bfqq_recalc_budget(struct bfq_data *bfqd,
 	      */
 		budget = 2 * min_budget;
 
-	bfq_log_bfqq(bfqd, bfqq, "recalc_budg: last budg %d, budg left %d",
+	bfq_log_bfqq(bfqd, bfqq, "last budg %d, budg left %d",
 		bfqq->entity.budget, bfq_bfqq_budget_left(bfqq));
-	bfq_log_bfqq(bfqd, bfqq, "recalc_budg: last max_budg %d, min budg %d",
+	bfq_log_bfqq(bfqd, bfqq, "last max_budg %d, min budg %d",
 		budget, bfq_min_budget(bfqd));
-	bfq_log_bfqq(bfqd, bfqq, "recalc_budg: sync %d, seeky %d",
+	bfq_log_bfqq(bfqd, bfqq, "sync %d, seeky %d",
 		bfq_bfqq_sync(bfqq), BFQQ_SEEKY(bfqd->in_service_queue));
 
 	if (bfq_bfqq_sync(bfqq) && bfqq->wr_coeff == 1) {
@@ -3106,7 +3111,7 @@ static bool bfq_bfqq_is_slow(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 		else /* charge at least one seek */
 			*delta_ms = bfq_slice_idle / NSEC_PER_MSEC;
 
-		bfq_log(bfqd, "bfq_bfqq_is_slow: too short %u", delta_usecs);
+		bfq_log(bfqd, "too short %u", delta_usecs);
 
 		return slow;
 	}
@@ -3129,11 +3134,11 @@ static bool bfq_bfqq_is_slow(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 		 * peak rate.
 		 */
 		slow = bfqq->entity.service < bfqd->bfq_max_budget / 2;
-		bfq_log(bfqd, "bfq_bfqq_is_slow: relative rate %d/%d",
+		bfq_log(bfqd, "relative rate %d/%d",
 			bfqq->entity.service, bfqd->bfq_max_budget);
 	}
 
-	bfq_log_bfqq(bfqd, bfqq, "bfq_bfqq_is_slow: slow %d", slow);
+	bfq_log_bfqq(bfqd, bfqq, "slow %d", slow);
 
 	return slow;
 }
@@ -3235,7 +3240,7 @@ static unsigned long bfq_bfqq_softrt_next_start(struct bfq_data *bfqd,
 						struct bfq_queue *bfqq)
 {
 	bfq_log_bfqq(bfqd, bfqq,
-"softrt_next_start: service_blkg %lu soft_rate %u sects/sec interval %u",
+"service_blkg %lu soft_rate %u sects/sec interval %u",
 		     bfqq->service_from_backlogged,
 		     bfqd->bfq_wr_max_softrt_rate,
 		     jiffies_to_msecs(HZ * bfqq->service_from_backlogged /
@@ -3367,8 +3372,8 @@ static void bfq_bfqq_expire(struct bfq_data *bfqd,
 	}
 
 	bfq_log_bfqq(bfqd, bfqq,
-		"expire (%d, slow %d, num_disp %d, short_ttime %d, weight %d)",
-		     reason, slow, bfqq->dispatched,
+		"expire (%s, slow %d, num_disp %d, short_ttime %d, weight %d)",
+		     reason_name[reason], slow, bfqq->dispatched,
 		     bfq_bfqq_has_short_ttime(bfqq), entity->weight);
 
 	/*
@@ -3414,7 +3419,7 @@ static bool bfq_bfqq_budget_timeout(struct bfq_queue *bfqq)
 static bool bfq_may_expire_for_budg_timeout(struct bfq_queue *bfqq)
 {
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
-		"may_budget_timeout: wait_request %d left %d timeout %d",
+		"wait_request %d left %d timeout %d",
 		bfq_bfqq_wait_request(bfqq),
 			bfq_bfqq_budget_left(bfqq) >=  bfqq->entity.budget / 3,
 		bfq_bfqq_budget_timeout(bfqq));
@@ -3675,11 +3680,11 @@ static bool bfq_bfqq_may_idle(struct bfq_queue *bfqq)
 	 * either boosts the throughput (without issues), or is
 	 * necessary to preserve service guarantees.
 	 */
-	bfq_log_bfqq(bfqd, bfqq, "may_idle: sync %d idling_boosts_thr %d",
+	bfq_log_bfqq(bfqd, bfqq, "sync %d idling_boosts_thr %d",
 		     bfq_bfqq_sync(bfqq), idling_boosts_thr);
 
 	bfq_log_bfqq(bfqd, bfqq,
-		     "may_idle: wr_busy %d boosts %d IO-bound %d guar %d",
+		     "wr_busy %d boosts %d IO-bound %d guar %d",
 		     bfqd->wr_busy_queues,
 		     idling_boosts_thr_without_issues,
 		     bfq_bfqq_IO_bound(bfqq),
@@ -3719,7 +3724,7 @@ static struct bfq_queue *bfq_select_queue(struct bfq_data *bfqd)
 	if (!bfqq)
 		goto new_queue;
 
-	bfq_log_bfqq(bfqd, bfqq, "select_queue: already in-service queue");
+	bfq_log_bfqq(bfqd, bfqq, "already in-service queue");
 
 	if (bfq_may_expire_for_budg_timeout(bfqq) &&
 	    !hrtimer_active(&bfqd->idle_slice_timer) &&
@@ -3797,14 +3802,14 @@ expire:
 new_queue:
 	bfqq = bfq_set_in_service_queue(bfqd);
 	if (bfqq) {
-		bfq_log_bfqq(bfqd, bfqq, "select_queue: checking new queue");
+		bfq_log_bfqq(bfqd, bfqq, "checking new queue");
 		goto check_queue;
 	}
 keep_queue:
 	if (bfqq)
-		bfq_log_bfqq(bfqd, bfqq, "select_queue: returned this queue");
+		bfq_log_bfqq(bfqd, bfqq, "returned this queue");
 	else
-		bfq_log(bfqd, "select_queue: no queue returned");
+		bfq_log(bfqd, "no queue returned");
 
 	return bfqq;
 }
@@ -3857,8 +3862,7 @@ static void bfq_update_wr_data(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 			       /* see comments on max_service_from_wr */
 			       bfq_bfqq_end_wr(bfqq);
 			       bfq_log_bfqq(bfqd, bfqq,
-					       "[%s] too much service",
-					       __func__);
+					       "too much service");
 	       }
 	}
 	/*
@@ -3987,7 +3991,7 @@ static int bfq_dispatch_requests(struct request_queue *q, int force)
 	struct bfq_data *bfqd = q->elevator->elevator_data;
 	struct bfq_queue *bfqq;
 
-	bfq_log(bfqd, "dispatch requests: %d busy queues", bfqd->busy_queues);
+	bfq_log(bfqd, "%d busy queues", bfqd->busy_queues);
 
 	if (bfqd->busy_queues == 0)
 		return 0;
@@ -4021,7 +4025,7 @@ static int bfq_dispatch_requests(struct request_queue *q, int force)
 	if (!bfq_dispatch_request(bfqd, bfqq))
 		return 0;
 
-	bfq_log_bfqq(bfqd, bfqq, "dispatched %s request",
+	bfq_log_bfqq(bfqd, bfqq, "%s request",
 			bfq_bfqq_sync(bfqq) ? "sync" : "async");
 
 	BUG_ON(bfqq->next_rq == NULL &&
@@ -4044,7 +4048,7 @@ static void bfq_put_queue(struct bfq_queue *bfqq)
 
 	BUG_ON(bfqq->ref <= 0);
 
-	bfq_log_bfqq(bfqq->bfqd, bfqq, "put_queue: %p %d", bfqq, bfqq->ref);
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "%p %d", bfqq, bfqq->ref);
 	bfqq->ref--;
 	if (bfqq->ref)
 		return;
@@ -4086,7 +4090,7 @@ static void bfq_put_queue(struct bfq_queue *bfqq)
 			bfqq->bfqd->burst_size--;
 	}
 
-	bfq_log_bfqq(bfqq->bfqd, bfqq, "put_queue: %p freed", bfqq);
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "%p freed", bfqq);
 
 	kmem_cache_free(bfq_pool, bfqq);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
@@ -4120,7 +4124,7 @@ static void bfq_exit_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 		bfq_schedule_dispatch(bfqd);
 	}
 
-	bfq_log_bfqq(bfqd, bfqq, "exit_bfqq: %p, %d", bfqq, bfqq->ref);
+	bfq_log_bfqq(bfqd, bfqq, "%p, %d", bfqq, bfqq->ref);
 
 	bfq_put_cooperator(bfqq);
 
@@ -4200,7 +4204,7 @@ static void bfq_set_next_ioprio_data(struct bfq_queue *bfqq,
 	bfqq->entity.new_weight = bfq_ioprio_to_weight(bfqq->new_ioprio);
 	bfqq->entity.prio_changed = 1;
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
-		     "set_next_ioprio_data: bic_class %d prio %d class %d",
+		     "bic_class %d prio %d class %d",
 		     ioprio_class, bfqq->new_ioprio, bfqq->new_ioprio_class);
 }
 
@@ -4227,7 +4231,7 @@ static void bfq_check_ioprio_change(struct bfq_io_cq *bic, struct bio *bio)
 		bfqq = bfq_get_queue(bfqd, bio, BLK_RW_ASYNC, bic);
 		bic_set_bfqq(bic, bfqq, false);
 		bfq_log_bfqq(bfqd, bfqq,
-			     "check_ioprio_change: bfqq %p %d",
+			     "bfqq %p %d",
 			     bfqq, bfqq->ref);
 	}
 
@@ -4362,14 +4366,14 @@ static struct bfq_queue *bfq_get_queue(struct bfq_data *bfqd,
 			      * guarantee that this queue is not freed
 			      * until its group goes away.
 			      */
-		bfq_log_bfqq(bfqd, bfqq, "get_queue, bfqq not in async: %p, %d",
+		bfq_log_bfqq(bfqd, bfqq, "bfqq not in async: %p, %d",
 			     bfqq, bfqq->ref);
 		*async_bfqq = bfqq;
 	}
 
 out:
 	bfqq->ref++; /* get a process reference to this queue */
-	bfq_log_bfqq(bfqd, bfqq, "get_queue, at end: %p, %d", bfqq, bfqq->ref);
+	bfq_log_bfqq(bfqd, bfqq, "at end: %p, %d", bfqq, bfqq->ref);
 	rcu_read_unlock();
 	return bfqq;
 }
@@ -4428,7 +4432,7 @@ static void bfq_update_has_short_ttime(struct bfq_data *bfqd,
 	     bic->ttime.ttime_mean > bfqd->bfq_slice_idle))
 		has_short_ttime = false;
 
-	bfq_log_bfqq(bfqd, bfqq, "update_has_short_ttime: has_short_ttime %d",
+	bfq_log_bfqq(bfqd, bfqq, "has_short_ttime %d",
 		has_short_ttime);
 
 	if (has_short_ttime)
@@ -4454,7 +4458,7 @@ static void bfq_rq_enqueued(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	bfq_update_io_seektime(bfqd, bfqq, rq);
 
 	bfq_log_bfqq(bfqd, bfqq,
-		     "rq_enqueued: has_short_ttime=%d (seeky %d)",
+		     "has_short_ttime=%d (seeky %d)",
 		     bfq_bfqq_has_short_ttime(bfqq), BFQQ_SEEKY(bfqq));
 
 	bfqq->last_request_pos = blk_rq_pos(rq) + blk_rq_sectors(rq);
@@ -4629,7 +4633,7 @@ static void bfq_completed_request(struct request_queue *q, struct request *rq)
 	 */
 	delta_us = div_u64(now_ns - bfqd->last_completion, NSEC_PER_USEC);
 
-	bfq_log(bfqd, "rq_completed: delta %uus/%luus max_size %u rate %llu/%llu",
+	bfq_log(bfqd, "delta %uus/%luus max_size %u rate %llu/%llu",
 		delta_us, BFQ_MIN_TT/NSEC_PER_USEC, bfqd->last_rq_max_size,
 		delta_us > 0 ?
 		(USEC_PER_SEC*
@@ -4750,7 +4754,7 @@ static void bfq_put_request(struct request *rq)
 		rq->elv.priv[0] = NULL;
 		rq->elv.priv[1] = NULL;
 
-		bfq_log_bfqq(bfqq->bfqd, bfqq, "put_request %p, %d",
+		bfq_log_bfqq(bfqq->bfqd, bfqq, "%p, %d",
 			     bfqq, bfqq->ref);
 		bfq_put_queue(bfqq);
 	}
@@ -4816,7 +4820,7 @@ new_queue:
 		bic_set_bfqq(bic, bfqq, is_sync);
 		if (split && is_sync) {
 			bfq_log_bfqq(bfqd, bfqq,
-				     "set_request: was_in_list %d "
+				     "was_in_list %d "
 				     "was_in_large_burst %d "
 				     "large burst in progress %d",
 				     bic->was_in_burst_list,
@@ -4826,12 +4830,12 @@ new_queue:
 			if ((bic->was_in_burst_list && bfqd->large_burst) ||
 			    bic->saved_in_large_burst) {
 				bfq_log_bfqq(bfqd, bfqq,
-					     "set_request: marking in "
+					     "marking in "
 					     "large burst");
 				bfq_mark_bfqq_in_large_burst(bfqq);
 			} else {
 				bfq_log_bfqq(bfqd, bfqq,
-					     "set_request: clearing in "
+					     "clearing in "
 					     "large burst");
 				bfq_clear_bfqq_in_large_burst(bfqq);
 				if (bic->was_in_burst_list)
@@ -4888,7 +4892,7 @@ new_queue:
 
 	bfqq->allocated[rw]++;
 	bfqq->ref++;
-	bfq_log_bfqq(bfqd, bfqq, "set_request: bfqq %p, %d", bfqq, bfqq->ref);
+	bfq_log_bfqq(bfqd, bfqq, "bfqq %p, %d", bfqq, bfqq->ref);
 
 	rq->elv.priv[0] = bic;
 	rq->elv.priv[1] = bfqq;
@@ -4962,7 +4966,7 @@ static enum hrtimer_restart bfq_idle_slice_timer(struct hrtimer *timer)
 	 * case we just expire a queue too early.
 	 */
 	if (bfqq) {
-		bfq_log_bfqq(bfqd, bfqq, "slice_timer expired");
+		bfq_log_bfqq(bfqd, bfqq, "expired");
 		bfq_clear_bfqq_wait_request(bfqq);
 
 		if (bfq_bfqq_budget_timeout(bfqq))
@@ -5005,10 +5009,10 @@ static void __bfq_put_async_bfqq(struct bfq_data *bfqd,
 	struct bfq_group *root_group = bfqd->root_group;
 	struct bfq_queue *bfqq = *bfqq_ptr;
 
-	bfq_log(bfqd, "put_async_bfqq: %p", bfqq);
+	bfq_log(bfqd, "%p", bfqq);
 	if (bfqq) {
 		bfq_bfqq_move(bfqd, bfqq, root_group);
-		bfq_log_bfqq(bfqd, bfqq, "put_async_bfqq: putting %p, %d",
+		bfq_log_bfqq(bfqd, bfqq, "putting %p, %d",
 			     bfqq, bfqq->ref);
 		bfq_put_queue(bfqq);
 		*bfqq_ptr = NULL;
