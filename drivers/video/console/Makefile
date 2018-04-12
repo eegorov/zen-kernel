@@ -9,4 +9,5 @@ obj-$(CONFIG_STI_CONSOLE)         += sticon.o sticore.o
 obj-$(CONFIG_VGA_CONSOLE)         += vgacon.o
 obj-$(CONFIG_MDA_CONSOLE)         += mdacon.o
 
+obj-$(CONFIG_FB_CON_DECOR)     	  += fbcondecor.o cfbcondecor.o
 obj-$(CONFIG_FB_STI)              += sticore.o
