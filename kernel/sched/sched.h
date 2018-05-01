@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 
+#ifdef CONFIG_SCHED_MUQSS
+#include "MuQSS.h"
+#else /* CONFIG_SCHED_MUQSS */
 #include <linux/sched.h>
 #include <linux/sched/autogroup.h>
 #include <linux/sched/sysctl.h>
@@ -2133,3 +2136,30 @@ static inline unsigned long cpu_util_cfs(struct rq *rq)
 }
 
 #endif
+
+/* MuQSS compatibility functions */
+static inline bool softirq_pending(int cpu)
+{
+	return false;
+}
+
+#ifdef CONFIG_64BIT
+static inline u64 read_sum_exec_runtime(struct task_struct *t)
+{
+	return t->se.sum_exec_runtime;
+}
+#else
+static inline u64 read_sum_exec_runtime(struct task_struct *t)
+{
+	u64 ns;
+	struct rq_flags rf;
+	struct rq *rq;
+
+	rq = task_rq_lock(t, &rf);
+	ns = t->se.sum_exec_runtime;
+	task_rq_unlock(rq, t, &rf);
+
+	return ns;
+}
+#endif
+#endif /* CONFIG_SCHED_MUQSS */
