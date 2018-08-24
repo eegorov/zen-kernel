@@ -72,6 +72,14 @@
 
 #include "MuQSS.h"
 
+/* needing to include irq_regs.h, "because reasons"...
+ * implicit declaration of function ‘get_irq_regs’;
+ * did you mean ‘get_ibs_caps’?
+ * [-Werror=implicit-function-declaration]
+ * ^ this is because autodetect is not flawless
+ */
+#include <asm/irq_regs.h>
+
 #define rt_prio(prio)		unlikely((prio) < MAX_RT_PRIO)
 #define rt_task(p)		rt_prio((p)->prio)
 #define batch_task(p)		(unlikely((p)->policy == SCHED_BATCH))

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 4
 PATCHLEVEL = 17
-SUBLEVEL = 14
-EXTRAVERSION = -zen1
+SUBLEVEL = 17
+EXTRAVERSION = -zen
 NAME = Thermonuclear Telephone
 
 # *DOCUMENTATION*
