@@ -390,7 +390,7 @@ static void digicolor_uart_console_putchar(struct uart_port *port, int ch)
 }
 
 static void digicolor_uart_console_write(struct console *co, const char *c,
-					 unsigned n)
+					 unsigned n, unsigned loglevel)
 {
 	struct uart_port *port = digicolor_ports[co->index];
 	u8 status;
