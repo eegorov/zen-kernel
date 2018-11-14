@@ -520,6 +520,10 @@ static void bfq_pos_tree_add_move(struct bfq_data *bfqd, struct bfq_queue *bfqq)
  */
 static bool bfq_varied_queue_weights_or_active_groups(struct bfq_data *bfqd)
 {
+#ifdef BFQ_GROUP_IOSCHED_ENABLED
+	bfq_log(bfqd, "num_active_groups %u", bfqd->num_active_groups);
+#endif
+
 	/*
 	 * For queue weights to differ, queue_weights_tree must contain
 	 * at least two nodes.
@@ -739,7 +743,10 @@ static void bfq_weights_tree_remove(struct bfq_data *bfqd,
 			 */
 			break;
 		}
+		BUG_ON(!bfqd->num_active_groups);
 		bfqd->num_active_groups--;
+		bfq_log_bfqq(bfqd, bfqq, "num_active_groups %u",
+			     bfqd->num_active_groups);
 	}
 }
 
@@ -1839,7 +1846,11 @@ static void bfq_remove_request(struct request *rq)
 	struct bfq_data *bfqd = bfqq->bfqd;
 	const int sync = rq_is_sync(rq);
 
-	BUG_ON(bfqq->entity.service > bfqq->entity.budget);
+	/*
+	 * NOTE:
+	 * (bfqq->entity.service > bfqq->entity.budget) may hold here,
+	 * in case of forced dispatches.
+	 */
 
 	if (bfqq->next_rq == rq) {
 		bfqq->next_rq = bfq_find_next_rq(bfqd, bfqq, rq);
