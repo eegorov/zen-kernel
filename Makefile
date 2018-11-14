@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 4
 PATCHLEVEL = 19
-SUBLEVEL = 0
-EXTRAVERSION =
-NAME = "People's Front"
+SUBLEVEL = 2
+EXTRAVERSION = -zen
+NAME = Neo Mir
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -661,10 +661,14 @@ ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= $(call cc-option,-Oz,-Os)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,maybe-uninitialized,)
 else
+ifdef CONFIG_CC_OPTIMIZE_HARDER
+KBUILD_CFLAGS	+= -O3 $(call cc-disable-warning,maybe-uninitialized,)
+else
 ifdef CONFIG_PROFILE_ALL_BRANCHES
 KBUILD_CFLAGS	+= -O2 $(call cc-disable-warning,maybe-uninitialized,)
 else
 KBUILD_CFLAGS   += -O2
+endif
 endif
 endif
 
