@@ -151,7 +151,7 @@ __setup("rqshare=", set_rqshare);
  * Tunable via /proc interface.
  */
 #ifdef CONFIG_ZEN_INTERACTIVE
-int rr_interval __read_mostly = 3;
+int rr_interval __read_mostly = 4;
 #else
 int rr_interval __read_mostly = 6;
 #endif
