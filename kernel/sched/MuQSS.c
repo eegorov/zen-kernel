@@ -445,7 +445,7 @@ static inline bool trylock_rq(struct rq *this_rq, struct rq *rq)
 {
 	if (unlikely(!do_raw_spin_trylock(rq->lock)))
 		return false;
-	spin_acquire(rq->lock.dep_map, SINGLE_DEPTH_NESTING, 1, _RET_IP_);
+	spin_acquire(&rq->lock->dep_map, SINGLE_DEPTH_NESTING, 1, _RET_IP_);
 	synchronise_niffies(this_rq, rq);
 	return true;
 }
@@ -453,7 +453,7 @@ static inline bool trylock_rq(struct rq *this_rq, struct rq *rq)
 /* Unlock a specially nested trylocked rq */
 static inline void unlock_rq(struct rq *rq)
 {
-	spin_release(rq->lock.dep_map, 1, _RET_IP_);
+	spin_release(&rq->lock->dep_map, 1, _RET_IP_);
 	do_raw_spin_unlock(rq->lock);
 }
 
@@ -2569,10 +2569,10 @@ prepare_lock_switch(struct rq *rq, struct task_struct *next)
 	 * of the scheduler it's an obvious special-case), so we
 	 * do an early lockdep release here:
 	 */
-	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
+	spin_release(&rq->lock->dep_map, 1, _THIS_IP_);
 #ifdef CONFIG_DEBUG_SPINLOCK
 	/* this is a valid case when another task releases the spinlock */
-	rq->lock.owner = next;
+	rq->lock->owner = next;
 #endif
 }
 
@@ -2583,7 +2583,7 @@ static inline void finish_lock_switch(struct rq *rq, struct task_struct *prev)
 	 * fix up the runqueue lock - which gets 'carried over' from
 	 * prev into current:
 	 */
-	spin_acquire(&rq->lock.dep_map, 0, 0, _THIS_IP_);
+	spin_acquire(&rq->lock->dep_map, 0, 0, _THIS_IP_);
 
 #ifdef CONFIG_SMP
 	/*
@@ -6721,8 +6721,8 @@ void __init sched_init_smp(void)
 	if (set_cpus_allowed_ptr(current, housekeeping_cpumask(HK_FLAG_DOMAIN)) < 0)
 		BUG();
 
-	mutex_lock(&sched_domains_mutex);
 	local_irq_disable();
+	mutex_lock(&sched_domains_mutex);
 	lock_all_rqs();
 	/*
 	 * Set up the relative cache distance of each online cpu from each
@@ -6813,7 +6813,6 @@ void __init sched_init_smp(void)
 	}
 #endif
 	unlock_all_rqs();
-	local_irq_enable();
 	mutex_unlock(&sched_domains_mutex);
 
 	for_each_online_cpu(cpu) {
@@ -6893,6 +6892,8 @@ void __init sched_init_smp(void)
 			rq_unlock(rq);
 	}
 #endif /* CONFIG_SCHED_SMT */
+
+	local_irq_enable();
 
 	total_runqueues = 0;
 	for_each_possible_cpu(cpu) {
