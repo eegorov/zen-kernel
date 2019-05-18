@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 5
 PATCHLEVEL = 1
-SUBLEVEL = 0
-EXTRAVERSION =
-NAME = Shy Crocodile
+SUBLEVEL = 3
+EXTRAVERSION = -zen
+NAME = Chainsaw Slalom
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -683,7 +683,11 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os
 else
+ifdef CONFIG_CC_OPTIMIZE_HARDER
+KBUILD_CFLAGS	+= -O3
+else
 KBUILD_CFLAGS   += -O2
+endif
 endif
 
 ifdef CONFIG_CC_DISABLE_WARN_MAYBE_UNINITIALIZED
