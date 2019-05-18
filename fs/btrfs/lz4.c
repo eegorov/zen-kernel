@@ -39,9 +39,9 @@ static void lz4_cleanup_workspace_manager(void)
        btrfs_cleanup_workspace_manager(&wsm);
 }
 
-static struct list_head *lz4_get_workspace(void)
+static struct list_head *lz4_get_workspace(unsigned int level)
 {
-       return btrfs_get_workspace(&wsm);
+       return btrfs_get_workspace(&wsm, level);
 }
 
 static void lz4_put_workspace(struct list_head *ws)
@@ -84,12 +84,12 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
-static struct list_head *lz4_alloc_workspace(void)
+static struct list_head *lz4_alloc_workspace(unsigned int level)
 {
 	return lz4_alloc_workspace_generic(0);
 }
 
-static struct list_head *lz4hc_alloc_workspace(void)
+static struct list_head *lz4hc_alloc_workspace(unsigned int level)
 {
 	return lz4_alloc_workspace_generic(1);
 }
