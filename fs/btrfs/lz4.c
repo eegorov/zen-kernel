@@ -522,8 +522,9 @@ out:
 	return ret;
 }
 
-static void lz4_set_level(struct list_head *ws, unsigned int type)
+static unsigned int lz4_set_level(unsigned int level)
 {
+	return 0;
 }
 
 const struct btrfs_compress_op btrfs_lz4_compress = {
