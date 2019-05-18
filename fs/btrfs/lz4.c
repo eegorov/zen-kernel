@@ -26,6 +26,29 @@ struct workspace {
 	struct list_head list;
 };
 
+
+static struct workspace_manager wsm;
+
+static void lz4_init_workspace_manager(void)
+{
+       btrfs_init_workspace_manager(&wsm, &btrfs_lzo_compress);
+}
+
+static void lz4_cleanup_workspace_manager(void)
+{
+       btrfs_cleanup_workspace_manager(&wsm);
+}
+
+static struct list_head *lz4_get_workspace(void)
+{
+       return btrfs_get_workspace(&wsm);
+}
+
+static void lz4_put_workspace(struct list_head *ws)
+{
+       btrfs_put_workspace(&wsm, ws);
+}
+
 static void lz4_free_workspace(struct list_head *ws)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
@@ -504,6 +527,10 @@ static void lz4_set_level(struct list_head *ws, unsigned int type)
 }
 
 const struct btrfs_compress_op btrfs_lz4_compress = {
+	.init_workspace_manager = lz4_init_workspace_manager,
+	.cleanup_workspace_manager = lz4_cleanup_workspace_manager,
+	.get_workspace          = lz4_get_workspace,
+	.put_workspace          = lz4_put_workspace,
 	.alloc_workspace	= lz4_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4_compress_pages,
@@ -513,6 +540,10 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 };
 
 const struct btrfs_compress_op btrfs_lz4hc_compress = {
+	.init_workspace_manager = lz4_init_workspace_manager,
+	.cleanup_workspace_manager = lz4_cleanup_workspace_manager,
+	.get_workspace          = lz4_get_workspace,
+	.put_workspace          = lz4_put_workspace,
 	.alloc_workspace	= lz4hc_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.compress_pages		= lz4hc_compress_pages,
