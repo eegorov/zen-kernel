@@ -538,6 +538,8 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress,
 	.set_level              = lz4_set_level,
+	.max_level              = 1,
+	.default_level          = 1,
 };
 
 const struct btrfs_compress_op btrfs_lz4hc_compress = {
@@ -551,4 +553,6 @@ const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress,
 	.set_level              = lz4_set_level,
+	.max_level              = 1,
+	.default_level          = 1,
 };
