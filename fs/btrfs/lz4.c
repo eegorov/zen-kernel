@@ -29,17 +29,17 @@ struct workspace {
 
 static struct workspace_manager wsm;
 
-static struct list_head *lz4_get_workspace(unsigned int level)
+struct list_head *lz4_get_workspace(unsigned int level)
 {
        return btrfs_get_workspace(&wsm, level);
 }
 
-static void lz4_put_workspace(struct list_head *ws)
+void lz4_put_workspace(struct list_head *ws)
 {
        btrfs_put_workspace(&wsm, ws);
 }
 
-static void lz4_free_workspace(struct list_head *ws)
+void lz4_free_workspace(struct list_head *ws)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 
@@ -74,7 +74,7 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
-static struct list_head *lz4_alloc_workspace(unsigned int level)
+struct list_head *lz4_alloc_workspace(unsigned int level)
 {
 	return lz4_alloc_workspace_generic(0);
 }
