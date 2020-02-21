@@ -290,7 +290,7 @@ out:
 	return ret;
 }
 
-static int lz4_compress_pages(struct list_head *ws,
+int lz4_compress_pages(struct list_head *ws,
 			      struct address_space *mapping,
 			      u64 start,
 			      struct page **pages,
@@ -302,7 +302,7 @@ static int lz4_compress_pages(struct list_head *ws,
 				out_pages, total_in, total_out, 0);
 }
 
-static int lz4hc_compress_pages(struct list_head *ws,
+int lz4hc_compress_pages(struct list_head *ws,
 			      struct address_space *mapping,
 			      u64 start,
 			      struct page **pages,
@@ -314,7 +314,7 @@ static int lz4hc_compress_pages(struct list_head *ws,
 				out_pages, total_in, total_out, 1);
 }
 
-static int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
+int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret = 0, ret2;
@@ -457,7 +457,7 @@ done:
 	return ret;
 }
 
-static int lz4_decompress(struct list_head *ws, unsigned char *data_in,
+int lz4_decompress(struct list_head *ws, unsigned char *data_in,
 			  struct page *dest_page,
 			  unsigned long start_byte,
 			  size_t srclen, size_t destlen)
