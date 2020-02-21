@@ -29,11 +29,6 @@ struct workspace {
 
 static struct workspace_manager wsm;
 
-static void lz4_init_workspace_manager(void)
-{
-       btrfs_init_workspace_manager(BTRFS_COMPRESS_LZ4);
-}
-
 static void lz4_cleanup_workspace_manager(void)
 {
        btrfs_cleanup_workspace_manager(&wsm);
@@ -524,7 +519,6 @@ out:
 
 const struct btrfs_compress_op btrfs_lz4_compress = {
 	.workspace_manager      = &wsm,
-	.init_workspace_manager = lz4_init_workspace_manager,
 	.cleanup_workspace_manager = lz4_cleanup_workspace_manager,
 	.get_workspace          = lz4_get_workspace,
 	.put_workspace          = lz4_put_workspace,
@@ -536,7 +530,6 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 
 const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.workspace_manager      = &wsm,
-	.init_workspace_manager = lz4_init_workspace_manager,
 	.cleanup_workspace_manager = lz4_cleanup_workspace_manager,
 	.get_workspace          = lz4_get_workspace,
 	.put_workspace          = lz4_put_workspace,
