@@ -504,7 +504,6 @@ out:
 
 const struct btrfs_compress_op btrfs_lz4_compress = {
 	.workspace_manager      = &wsm,
-	.alloc_workspace	= lz4_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.max_level              = 1,
 	.default_level          = 1,
@@ -512,7 +511,6 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 
 const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.workspace_manager      = &wsm,
-	.alloc_workspace	= lz4hc_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
 	.max_level              = 1,
 	.default_level          = 1,
