@@ -522,11 +522,6 @@ out:
 	return ret;
 }
 
-static unsigned int lz4_set_level(unsigned int level)
-{
-	return 0;
-}
-
 const struct btrfs_compress_op btrfs_lz4_compress = {
 	.init_workspace_manager = lz4_init_workspace_manager,
 	.cleanup_workspace_manager = lz4_cleanup_workspace_manager,
@@ -537,7 +532,6 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 	.compress_pages		= lz4_compress_pages,
 	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress,
-	.set_level              = lz4_set_level,
 	.max_level              = 1,
 	.default_level          = 1,
 };
@@ -552,7 +546,6 @@ const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.compress_pages		= lz4hc_compress_pages,
 	.decompress_bio		= lz4_decompress_bio,
 	.decompress		= lz4_decompress,
-	.set_level              = lz4_set_level,
 	.max_level              = 1,
 	.default_level          = 1,
 };
