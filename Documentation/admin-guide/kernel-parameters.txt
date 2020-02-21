@@ -1765,6 +1765,9 @@
 			disable
 			  Do not enable intel_pstate as the default
 			  scaling driver for the supported processors
+			enable
+			  Enable intel_pstate in-case "disable" was passed
+			  previously in the kernel boot parameters
 			passive
 			  Use intel_pstate as a scaling driver, but configure it
 			  to work with generic cpufreq governors (instead of
@@ -4306,6 +4309,14 @@
 			[KNL,ARM,CMA] Remoteproc physical memory block.
 			Memory area to be used by remote processor image,
 			managed by CMA.
+
+	rqshare=	[X86] Select the MuQSS scheduler runqueue sharing type.
+			Format: <string>
+			smt -- Share SMT (hyperthread) sibling runqueues
+			mc -- Share MC (multicore) sibling runqueues
+			smp -- Share SMP runqueues
+			none -- So not share any runqueues
+			Default value is mc
 
 	rw		[KNL] Mount root device read-write on boot
 
