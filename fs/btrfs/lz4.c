@@ -31,7 +31,7 @@ static struct workspace_manager wsm;
 
 static void lz4_cleanup_workspace_manager(void)
 {
-       btrfs_cleanup_workspace_manager(&wsm);
+       btrfs_cleanup_workspace_manager(BTRFS_COMPRESS_LZ4);
 }
 
 static struct list_head *lz4_get_workspace(unsigned int level)
