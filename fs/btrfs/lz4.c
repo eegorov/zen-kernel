@@ -529,9 +529,6 @@ const struct btrfs_compress_op btrfs_lz4_compress = {
 	.put_workspace          = lz4_put_workspace,
 	.alloc_workspace	= lz4_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
-	.compress_pages		= lz4_compress_pages,
-	.decompress_bio		= lz4_decompress_bio,
-	.decompress		= lz4_decompress,
 	.max_level              = 1,
 	.default_level          = 1,
 };
@@ -543,9 +540,6 @@ const struct btrfs_compress_op btrfs_lz4hc_compress = {
 	.put_workspace          = lz4_put_workspace,
 	.alloc_workspace	= lz4hc_alloc_workspace,
 	.free_workspace		= lz4_free_workspace,
-	.compress_pages		= lz4hc_compress_pages,
-	.decompress_bio		= lz4_decompress_bio,
-	.decompress		= lz4_decompress,
 	.max_level              = 1,
 	.default_level          = 1,
 };
