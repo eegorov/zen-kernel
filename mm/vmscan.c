@@ -915,6 +915,7 @@ static int __remove_mapping(struct address_space *mapping, struct page *page,
 	} else {
 		void (*freepage)(struct page *);
 		void *shadow = NULL;
+		int empty;
 
 		freepage = mapping->a_ops->freepage;
 		/*
@@ -936,8 +937,11 @@ static int __remove_mapping(struct address_space *mapping, struct page *page,
 		if (reclaimed && page_is_file_cache(page) &&
 		    !mapping_exiting(mapping) && !dax_mapping(mapping))
 			shadow = workingset_eviction(page, target_memcg);
-		__delete_from_page_cache(page, shadow);
+		empty = __delete_from_page_cache(page, shadow);
 		xa_unlock_irqrestore(&mapping->i_pages, flags);
+
+		if (empty)
+			inode_pages_clear(mapping->host);
 
 		if (freepage != NULL)
 			freepage(page);
@@ -2429,10 +2433,13 @@ out:
 			/*
 			 * Scan types proportional to swappiness and
 			 * their relative recent reclaim efficiency.
-			 * Make sure we don't miss the last page
-			 * because of a round-off error.
+			 * Make sure we don't miss the last page on
+			 * the offlined memory cgroups because of a
+			 * round-off error.
 			 */
-			scan = DIV64_U64_ROUND_UP(scan * fraction[file],
+			scan = mem_cgroup_online(memcg) ?
+			       div64_u64(scan * fraction[file], denominator) :
+			       DIV64_U64_ROUND_UP(scan * fraction[file],
 						  denominator);
 			break;
 		case SCAN_FILE:
