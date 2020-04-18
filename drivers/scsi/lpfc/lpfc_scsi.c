@@ -671,8 +671,10 @@ lpfc_get_scsi_buf_s4(struct lpfc_hba *phba, struct lpfc_nodelist *ndlp,
 	lpfc_cmd->prot_data_type = 0;
 #endif
 	tmp = lpfc_get_cmd_rsp_buf_per_hdwq(phba, lpfc_cmd);
-	if (!tmp)
+	if (!tmp) {
+		lpfc_release_io_buf(phba, lpfc_cmd, lpfc_cmd->hdwq);
 		return NULL;
+	}
 
 	lpfc_cmd->fcp_cmnd = tmp->fcp_cmnd;
 	lpfc_cmd->fcp_rsp = tmp->fcp_rsp;
@@ -5181,7 +5183,7 @@ lpfc_reset_flush_io_context(struct lpfc_vport *vport, uint16_t tgt_id,
 					tgt_id, lun_id, context);
 	later = msecs_to_jiffies(2 * vport->cfg_devloss_tmo * 1000) + jiffies;
 	while (time_after(later, jiffies) && cnt) {
-		schedule_timeout_uninterruptible(msecs_to_jiffies(20));
+		schedule_msec_hrtimeout_uninterruptible((20));
 		cnt = lpfc_sli_sum_iocb(vport, tgt_id, lun_id, context);
 	}
 	if (cnt) {
