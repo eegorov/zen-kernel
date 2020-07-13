@@ -379,6 +379,7 @@ config VIDEO_TVP514X
 config VIDEO_TVP5150
 	tristate "Texas Instruments TVP5150 video decoder"
 	depends on VIDEO_V4L2 && I2C
+	select REGMAP_I2C
 	select V4L2_FWNODE
 	select REGMAP_I2C
 	help
