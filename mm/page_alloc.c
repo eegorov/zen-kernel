@@ -68,13 +68,14 @@
 #include <linux/lockdep.h>
 #include <linux/nmi.h>
 #include <linux/psi.h>
-#include <linux/padata.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
 #include "internal.h"
 #include "shuffle.h"
+
+atomic_long_t kswapd_waiters = ATOMIC_LONG_INIT(0);
 
 /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
 static DEFINE_MUTEX(pcp_batch_high_lock);
@@ -1543,6 +1544,7 @@ void set_zone_contiguous(struct zone *zone)
 		if (!__pageblock_pfn_to_page(block_start_pfn,
 					     block_end_pfn, zone))
 			return;
+		cond_resched();
 	}
 
 	/* We confirm that there is no hole */
@@ -1627,6 +1629,7 @@ static void __init deferred_free_pages(unsigned long pfn,
 		} else if (!(pfn & nr_pgmask)) {
 			deferred_free_range(pfn - nr_free, nr_free);
 			nr_free = 1;
+			touch_nmi_watchdog();
 		} else {
 			nr_free++;
 		}
@@ -1656,6 +1659,7 @@ static unsigned long  __init deferred_init_pages(struct zone *zone,
 			continue;
 		} else if (!page || !(pfn & nr_pgmask)) {
 			page = pfn_to_page(pfn);
+			touch_nmi_watchdog();
 		} else {
 			page++;
 		}
@@ -1696,44 +1700,57 @@ deferred_init_mem_pfn_range_in_zone(u64 *i, struct zone *zone,
 }
 
 /*
- * Initialize the struct pages and then free them to the buddy allocator at
- * most a max order block at a time because while we are freeing pages we can
- * access pages that are ahead (computing buddy page in __free_one_page()).
- * It's also cache friendly.
+ * Initialize and free pages. We do it in two loops: first we initialize
+ * struct page, then free to buddy allocator, because while we are
+ * freeing pages we can access pages that are ahead (computing buddy
+ * page in __free_one_page()).
+ *
+ * In order to try and keep some memory in the cache we have the loop
+ * broken along max page order boundaries. This way we will not cause
+ * any issues with the buddy page computation.
  */
 static unsigned long __init
-deferred_init_maxorder(struct zone *zone, unsigned long *start_pfn,
-		       unsigned long end_pfn)
+deferred_init_maxorder(u64 *i, struct zone *zone, unsigned long *start_pfn,
+		       unsigned long *end_pfn)
 {
-	unsigned long nr_pages, pfn;
-
-	pfn = ALIGN(*start_pfn + 1, MAX_ORDER_NR_PAGES);
-	pfn = min(pfn, end_pfn);
-
-	nr_pages = deferred_init_pages(zone, *start_pfn, pfn);
-	deferred_free_pages(*start_pfn, pfn);
-	*start_pfn = pfn;
-
-	return nr_pages;
-}
-
-struct def_init_args {
-	struct zone *zone;
-	atomic_long_t nr_pages;
-};
-
-static void __init deferred_init_memmap_chunk(unsigned long spfn,
-					      unsigned long epfn, void *arg)
-{
-	struct def_init_args *args = arg;
+	unsigned long mo_pfn = ALIGN(*start_pfn + 1, MAX_ORDER_NR_PAGES);
+	unsigned long spfn = *start_pfn, epfn = *end_pfn;
 	unsigned long nr_pages = 0;
+	u64 j = *i;
 
-	while (spfn < epfn) {
-		nr_pages += deferred_init_maxorder(args->zone, &spfn, epfn);
-		cond_resched();
+	/* First we loop through and initialize the page values */
+	for_each_free_mem_pfn_range_in_zone_from(j, zone, start_pfn, end_pfn) {
+		unsigned long t;
+
+		if (mo_pfn <= *start_pfn)
+			break;
+
+		t = min(mo_pfn, *end_pfn);
+		nr_pages += deferred_init_pages(zone, *start_pfn, t);
+
+		if (mo_pfn < *end_pfn) {
+			*start_pfn = mo_pfn;
+			break;
+		}
 	}
 
-	atomic_long_add(nr_pages, &args->nr_pages);
+	/* Reset values and now loop through freeing pages as needed */
+	swap(j, *i);
+
+	for_each_free_mem_pfn_range_in_zone_from(j, zone, &spfn, &epfn) {
+		unsigned long t;
+
+		if (mo_pfn <= spfn)
+			break;
+
+		t = min(mo_pfn, epfn);
+		deferred_free_pages(spfn, t);
+
+		if (mo_pfn <= epfn)
+			break;
+	}
+
+	return nr_pages;
 }
 
 /* Initialise remaining memory on a node */
@@ -1745,7 +1762,7 @@ static int __init deferred_init_memmap(void *data)
 	unsigned long first_init_pfn, flags;
 	unsigned long start = jiffies;
 	struct zone *zone;
-	int zid, max_threads;
+	int zid;
 	u64 i;
 
 	/* Bind memory initialisation thread to a local node if possible */
@@ -1765,13 +1782,6 @@ static int __init deferred_init_memmap(void *data)
 	BUG_ON(pgdat->first_deferred_pfn > pgdat_end_pfn(pgdat));
 	pgdat->first_deferred_pfn = ULONG_MAX;
 
-	/*
-	 * Once we unlock here, the zone cannot be grown anymore, thus if an
-	 * interrupt thread must allocate this early in boot, zone must be
-	 * pre-grown prior to start of deferred page initialization.
-	 */
-	pgdat_resize_unlock(pgdat, &flags);
-
 	/* Only the highest zone is deferred so find it */
 	for (zid = 0; zid < MAX_NR_ZONES; zid++) {
 		zone = pgdat->node_zones + zid;
@@ -1785,27 +1795,15 @@ static int __init deferred_init_memmap(void *data)
 		goto zone_empty;
 
 	/*
-	 * More CPUs always led to greater speedups on tested systems, up to
-	 * all the nodes' CPUs.  Use all since the system is otherwise idle now.
+	 * Initialize and free pages in MAX_ORDER sized increments so
+	 * that we can avoid introducing any issues with the buddy
+	 * allocator.
 	 */
-	max_threads = max(cpumask_weight(cpumask), 1u);
-
-	for_each_free_mem_pfn_range_in_zone_from(i, zone, &spfn, &epfn) {
-		struct def_init_args args = { zone, ATOMIC_LONG_INIT(0) };
-		struct padata_mt_job job = {
-			.thread_fn   = deferred_init_memmap_chunk,
-			.fn_arg      = &args,
-			.start       = spfn,
-			.size	     = epfn - spfn,
-			.align	     = MAX_ORDER_NR_PAGES,
-			.min_chunk   = MAX_ORDER_NR_PAGES,
-			.max_threads = max_threads,
-		};
-
-		padata_do_multithreaded(&job);
-		nr_pages += atomic_long_read(&args.nr_pages);
-	}
+	while (spfn < epfn)
+		nr_pages += deferred_init_maxorder(&i, zone, &spfn, &epfn);
 zone_empty:
+	pgdat_resize_unlock(pgdat, &flags);
+
 	/* Sanity check that the next zone really is unpopulated */
 	WARN_ON(++zid < MAX_NR_ZONES && populated_zone(++zone));
 
@@ -1848,6 +1846,17 @@ deferred_grow_zone(struct zone *zone, unsigned int order)
 	pgdat_resize_lock(pgdat, &flags);
 
 	/*
+	 * If deferred pages have been initialized while we were waiting for
+	 * the lock, return true, as the zone was grown.  The caller will retry
+	 * this zone.  We won't return to this function since the caller also
+	 * has this static branch.
+	 */
+	if (!static_branch_unlikely(&deferred_pages)) {
+		pgdat_resize_unlock(pgdat, &flags);
+		return true;
+	}
+
+	/*
 	 * If someone grew this zone while we were waiting for spinlock, return
 	 * true, as there might be enough pages already.
 	 */
@@ -1870,18 +1879,21 @@ deferred_grow_zone(struct zone *zone, unsigned int order)
 	 * that we can avoid introducing any issues with the buddy
 	 * allocator.
 	 */
-	for_each_free_mem_pfn_range_in_zone_from(i, zone, &spfn, &epfn) {
-		while (spfn < epfn) {
-			nr_pages += deferred_init_maxorder(zone, &spfn, epfn);
-			touch_nmi_watchdog();
+	while (spfn < epfn) {
+		/* update our first deferred PFN for this section */
+		first_deferred_pfn = spfn;
 
-			/* If our quota has been met we can stop here */
-			if (nr_pages >= nr_pages_needed)
-				goto out;
-		}
+		nr_pages += deferred_init_maxorder(&i, zone, &spfn, &epfn);
+
+		/* We should only stop along section boundaries */
+		if ((first_deferred_pfn ^ spfn) < PAGES_PER_SECTION)
+			continue;
+
+		/* If our quota has been met we can stop here */
+		if (nr_pages >= nr_pages_needed)
+			break;
 	}
 
-out:
 	pgdat->first_deferred_pfn = spfn;
 	pgdat_resize_unlock(pgdat, &flags);
 
@@ -2327,6 +2339,14 @@ static inline void boost_watermark(struct zone *zone)
 	unsigned long max_boost;
 
 	if (!watermark_boost_factor)
+		return;
+	/*
+	 * Don't bother in zones that are unlikely to produce results.
+	 * On small machines, including kdump capture kernels running
+	 * in a small area, boosting the watermark can cause an out of
+	 * memory situation immediately.
+	 */
+	if ((pageblock_nr_pages * 4) > zone_managed_pages(zone))
 		return;
 
 	max_boost = mult_frac(zone->_watermark[WMARK_HIGH],
@@ -4381,7 +4401,6 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	int no_progress_loops;
 	unsigned int cpuset_mems_cookie;
 	int reserve_flags;
-	pg_data_t *pgdat = ac->preferred_zoneref->zone->zone_pgdat;
 	bool woke_kswapd = false;
 
 	/*
@@ -4418,7 +4437,7 @@ retry_cpuset:
 
 	if (alloc_flags & ALLOC_KSWAPD) {
 		if (!woke_kswapd) {
-			atomic_inc(&pgdat->kswapd_waiters);
+			atomic_long_inc(&kswapd_waiters);
 			woke_kswapd = true;
 		}
 		wake_all_kswapds(order, gfp_mask, ac);
@@ -4629,7 +4648,7 @@ nopage:
 fail:
 got_pg:
 	if (woke_kswapd)
-		atomic_dec(&pgdat->kswapd_waiters);
+		atomic_long_dec(&kswapd_waiters);
 	if (!page)
 		warn_alloc(gfp_mask, ac->nodemask,
 				"page allocation failure: order:%u", order);
@@ -6701,7 +6720,6 @@ static void __meminit pgdat_init_internals(struct pglist_data *pgdat)
 	pgdat_page_ext_init(pgdat);
 	spin_lock_init(&pgdat->lru_lock);
 	lruvec_init(&pgdat->__lruvec);
-	pgdat->kswapd_waiters = (atomic_t)ATOMIC_INIT(0);
 }
 
 static void __meminit zone_init_internals(struct zone *zone, enum zone_type idx, int nid,
