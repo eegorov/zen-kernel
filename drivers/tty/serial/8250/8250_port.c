@@ -3224,7 +3224,7 @@ static void serial8250_console_restore(struct uart_8250_port *up)
  *	Thus, we assume the function is called when device is powered up.
  */
 void serial8250_console_write(struct uart_8250_port *up, const char *s,
-			      unsigned int count)
+			      unsigned int count, unsigned int loglevel)
 {
 	struct uart_8250_em485 *em485 = up->em485;
 	struct uart_port *port = &up->port;
