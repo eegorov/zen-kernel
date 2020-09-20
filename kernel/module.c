@@ -56,6 +56,7 @@
 #include <linux/bsearch.h>
 #include <linux/dynamic_debug.h>
 #include <linux/audit.h>
+#include <linux/efi.h>
 #include <uapi/linux/module.h>
 #include "module-internal.h"
 
@@ -272,6 +273,10 @@ static void module_assert_mutex_or_preempt(void)
 
 static bool sig_enforce = IS_ENABLED(CONFIG_MODULE_SIG_FORCE);
 module_param(sig_enforce, bool_enable_only, 0644);
+/* Allow disabling module signature requirement by adding boot param */
+static bool sig_unenforce = false;
+module_param(sig_unenforce, bool_enable_only, 0644);
+
 
 /*
  * Export sig_enforce kernel cmdline parameter to allow other subsystems rely
@@ -396,6 +401,8 @@ extern const struct kernel_symbol __stop___ksymtab_unused_gpl[];
 extern const s32 __start___kcrctab_unused[];
 extern const s32 __start___kcrctab_unused_gpl[];
 #endif
+
+extern struct boot_params boot_params;
 
 #ifndef CONFIG_MODVERSIONS
 #define symversion(base, idx) NULL
@@ -1520,18 +1527,34 @@ struct module_sect_attrs {
 	struct module_sect_attr attrs[];
 };
 
+#define MODULE_SECT_READ_SIZE (3 /* "0x", "\n" */ + (BITS_PER_LONG / 4))
 static ssize_t module_sect_read(struct file *file, struct kobject *kobj,
 				struct bin_attribute *battr,
 				char *buf, loff_t pos, size_t count)
 {
 	struct module_sect_attr *sattr =
 		container_of(battr, struct module_sect_attr, battr);
+	char bounce[MODULE_SECT_READ_SIZE + 1];
+	size_t wrote;
 
 	if (pos != 0)
 		return -EINVAL;
 
-	return sprintf(buf, "0x%px\n",
-		       kallsyms_show_value(file->f_cred) ? (void *)sattr->address : NULL);
+	/*
+	 * Since we're a binary read handler, we must account for the
+	 * trailing NUL byte that sprintf will write: if "buf" is
+	 * too small to hold the NUL, or the NUL is exactly the last
+	 * byte, the read will look like it got truncated by one byte.
+	 * Since there is no way to ask sprintf nicely to not write
+	 * the NUL, we have to use a bounce buffer.
+	 */
+	wrote = scnprintf(bounce, sizeof(bounce), "0x%px\n",
+			 kallsyms_show_value(file->f_cred)
+				? (void *)sattr->address : NULL);
+	count = min(count, wrote);
+	memcpy(buf, bounce, count);
+
+	return count;
 }
 
 static void free_sect_attrs(struct module_sect_attrs *sect_attrs)
@@ -1580,7 +1603,7 @@ static void add_sect_attrs(struct module *mod, const struct load_info *info)
 			goto out;
 		sect_attrs->nsections++;
 		sattr->battr.read = module_sect_read;
-		sattr->battr.size = 3 /* "0x", "\n" */ + (BITS_PER_LONG / 4);
+		sattr->battr.size = MODULE_SECT_READ_SIZE;
 		sattr->battr.attr.mode = 0400;
 		*(gattr++) = &(sattr++)->battr;
 	}
@@ -4399,6 +4422,19 @@ static const struct proc_ops modules_proc_ops = {
 static int __init proc_modules_init(void)
 {
 	proc_create("modules", 0, NULL, &modules_proc_ops);
+
+#ifdef CONFIG_MODULE_SIG_FORCE
+	switch (boot_params.secure_boot) {
+	case efi_secureboot_mode_unset:
+	case efi_secureboot_mode_unknown:
+	case efi_secureboot_mode_disabled:
+		/*
+		 * sig_unenforce is only applied if SecureBoot is not
+		 * enabled.
+		 */
+		sig_enforce = !sig_unenforce;
+	}
+#endif
 	return 0;
 }
 module_init(proc_modules_init);

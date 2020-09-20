@@ -549,6 +549,16 @@ static inline void i_mmap_unlock_read(struct address_space *mapping)
 	up_read(&mapping->i_mmap_rwsem);
 }
 
+static inline void i_mmap_assert_locked(struct address_space *mapping)
+{
+	lockdep_assert_held(&mapping->i_mmap_rwsem);
+}
+
+static inline void i_mmap_assert_write_locked(struct address_space *mapping)
+{
+	lockdep_assert_held_write(&mapping->i_mmap_rwsem);
+}
+
 /*
  * Might pages of this file be mapped into userspace?
  */
@@ -591,6 +601,11 @@ static inline int mapping_deny_writable(struct address_space *mapping)
 static inline void mapping_allow_writable(struct address_space *mapping)
 {
 	atomic_inc(&mapping->i_mmap_writable);
+}
+
+static inline bool mapping_empty(struct address_space *mapping)
+{
+	return mapping->nrpages + mapping->nrexceptional == 0;
 }
 
 /*
@@ -2158,6 +2173,13 @@ static inline void kiocb_clone(struct kiocb *kiocb, struct kiocb *kiocb_src,
  *
  * I_DONTCACHE		Evict inode as soon as it is not used anymore.
  *
+ * I_SYNC_QUEUED	Inode is queued in b_io or b_more_io writeback lists.
+ *			Used to detect that mark_inode_dirty() should not move
+ * 			inode between dirty lists.
+ *
+ * I_PAGES		Inode is holding page cache that needs to get reclaimed
+ *			first before the inode can go onto the shrinker LRU.
+ *
  * Q: What is the difference between I_WILL_FREE and I_FREEING?
  */
 #define I_DIRTY_SYNC		(1 << 0)
@@ -2175,12 +2197,13 @@ static inline void kiocb_clone(struct kiocb *kiocb, struct kiocb *kiocb_src,
 #define I_DIO_WAKEUP		(1 << __I_DIO_WAKEUP)
 #define I_LINKABLE		(1 << 10)
 #define I_DIRTY_TIME		(1 << 11)
-#define __I_DIRTY_TIME_EXPIRED	12
-#define I_DIRTY_TIME_EXPIRED	(1 << __I_DIRTY_TIME_EXPIRED)
+#define I_DIRTY_TIME_EXPIRED	(1 << 12)
 #define I_WB_SWITCH		(1 << 13)
 #define I_OVL_INUSE		(1 << 14)
 #define I_CREATING		(1 << 15)
 #define I_DONTCACHE		(1 << 16)
+#define I_SYNC_QUEUED		(1 << 17)
+#define I_PAGES			(1 << 18)
 
 #define I_DIRTY_INODE (I_DIRTY_SYNC | I_DIRTY_DATASYNC)
 #define I_DIRTY (I_DIRTY_INODE | I_DIRTY_PAGES)
@@ -3120,6 +3143,14 @@ static inline void remove_inode_hash(struct inode *inode)
 	if (!inode_unhashed(inode) && !hlist_fake(&inode->i_hash))
 		__remove_inode_hash(inode);
 }
+
+#ifndef CONFIG_HIGHMEM
+extern void inode_pages_set(struct inode *inode);
+extern void inode_pages_clear(struct inode *inode);
+#else
+static inline void inode_pages_set(struct inode *inode) {}
+static inline void inode_pages_clear(struct inode *inode) {}
+#endif
 
 extern void inode_sb_list_add(struct inode *inode);
 

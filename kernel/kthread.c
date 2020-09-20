@@ -469,6 +469,34 @@ void kthread_bind(struct task_struct *p, unsigned int cpu)
 }
 EXPORT_SYMBOL(kthread_bind);
 
+#if defined(CONFIG_SCHED_MUQSS) && defined(CONFIG_SMP)
+extern void __do_set_cpus_allowed(struct task_struct *p, const struct cpumask *new_mask);
+
+/*
+ * new_kthread_bind is a special variant of __kthread_bind_mask.
+ * For new threads to work on muqss we want to call do_set_cpus_allowed
+ * without the task_cpu being set and the task rescheduled until they're
+ * rescheduled on their own so we call __do_set_cpus_allowed directly which
+ * only changes the cpumask. This is particularly important for smpboot threads
+ * to work.
+ */
+static void new_kthread_bind(struct task_struct *p, unsigned int cpu)
+{
+	unsigned long flags;
+
+	if (WARN_ON(!wait_task_inactive(p, TASK_UNINTERRUPTIBLE)))
+		return;
+
+	/* It's safe because the task is inactive. */
+	raw_spin_lock_irqsave(&p->pi_lock, flags);
+	__do_set_cpus_allowed(p, cpumask_of(cpu));
+	p->flags |= PF_NO_SETAFFINITY;
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+}
+#else
+#define new_kthread_bind(p, cpu) kthread_bind(p, cpu)
+#endif
+
 /**
  * kthread_create_on_cpu - Create a cpu bound kthread
  * @threadfn: the function to run until signal_pending(current).
@@ -490,7 +518,7 @@ struct task_struct *kthread_create_on_cpu(int (*threadfn)(void *data),
 				   cpu);
 	if (IS_ERR(p))
 		return p;
-	kthread_bind(p, cpu);
+	new_kthread_bind(p, cpu);
 	/* CPU hotplug need to bind once again when unparking the thread. */
 	set_bit(KTHREAD_IS_PER_CPU, &to_kthread(p)->flags);
 	to_kthread(p)->cpu = cpu;
@@ -1239,13 +1267,16 @@ void kthread_use_mm(struct mm_struct *mm)
 	WARN_ON_ONCE(tsk->mm);
 
 	task_lock(tsk);
+	/* Hold off tlb flush IPIs while switching mm's */
+	local_irq_disable();
 	active_mm = tsk->active_mm;
 	if (active_mm != mm) {
 		mmgrab(mm);
 		tsk->active_mm = mm;
 	}
 	tsk->mm = mm;
-	switch_mm(active_mm, mm, tsk);
+	switch_mm_irqs_off(active_mm, mm, tsk);
+	local_irq_enable();
 	task_unlock(tsk);
 #ifdef finish_arch_post_lock_switch
 	finish_arch_post_lock_switch();
@@ -1274,9 +1305,11 @@ void kthread_unuse_mm(struct mm_struct *mm)
 
 	task_lock(tsk);
 	sync_mm_rss(mm);
+	local_irq_disable();
 	tsk->mm = NULL;
 	/* active_mm is still 'mm' */
 	enter_lazy_tlb(mm, tsk);
+	local_irq_enable();
 	task_unlock(tsk);
 }
 EXPORT_SYMBOL_GPL(kthread_unuse_mm);
