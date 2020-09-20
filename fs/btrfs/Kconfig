@@ -14,6 +14,10 @@ config BTRFS_FS
 	select LZO_DECOMPRESS
 	select ZSTD_COMPRESS
 	select ZSTD_DECOMPRESS
+	select LZ4_COMPRESS
+	select LZ4_DECOMPRESS
+	select LZ4HC_COMPRESS
+	select LZ4HC_DECOMPRESS
 	select RAID6_PQ
 	select XOR_BLOCKS
 	select SRCU
