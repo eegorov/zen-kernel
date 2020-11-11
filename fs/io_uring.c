@@ -1140,6 +1140,9 @@ static void io_prep_async_work(struct io_kiocb *req)
 
 	io_req_init_async(req);
 
+	if (req->flags & REQ_F_FORCE_ASYNC)
+		req->work.flags |= IO_WQ_WORK_CONCURRENT;
+
 	if (req->flags & REQ_F_ISREG) {
 		if (def->hash_reg_file || (req->ctx->flags & IORING_SETUP_IOPOLL))
 			io_wq_hash_work(&req->work, file_inode(req->file));
@@ -1650,6 +1653,7 @@ static bool io_link_cancel_timeout(struct io_kiocb *req)
 
 	ret = hrtimer_try_to_cancel(&req->io->timeout.timer);
 	if (ret != -1) {
+		req->flags |= REQ_F_COMP_LOCKED;
 		io_cqring_fill_event(req, -ECANCELED);
 		io_commit_cqring(ctx);
 		req->flags &= ~REQ_F_LINK_HEAD;
@@ -1672,7 +1676,6 @@ static bool __io_kill_linked_timeout(struct io_kiocb *req)
 		return false;
 
 	list_del_init(&link->link_list);
-	link->flags |= REQ_F_COMP_LOCKED;
 	wake_ev = io_link_cancel_timeout(link);
 	req->flags &= ~REQ_F_LINK_TIMEOUT;
 	return wake_ev;
@@ -4786,8 +4789,10 @@ static int io_poll_double_wake(struct wait_queue_entry *wait, unsigned mode,
 		/* make sure double remove sees this as being gone */
 		wait->private = NULL;
 		spin_unlock(&poll->head->lock);
-		if (!done)
-			__io_async_wake(req, poll, mask, io_poll_task_func);
+		if (!done) {
+			/* use wait func handler, so it matches the rq type */
+			poll->wait.func(&poll->wait, mode, sync, key);
+		}
 	}
 	refcount_dec(&req->refs);
 	return 1;
@@ -6279,13 +6284,6 @@ fail_req:
 			if (unlikely(ret))
 				goto fail_req;
 		}
-
-		/*
-		 * Never try inline submit of IOSQE_ASYNC is set, go straight
-		 * to async execution.
-		 */
-		io_req_init_async(req);
-		req->work.flags |= IO_WQ_WORK_CONCURRENT;
 		io_queue_async_work(req);
 	} else {
 		__io_queue_sqe(req, sqe, cs);
@@ -8178,7 +8176,21 @@ static bool io_timeout_remove_link(struct io_ring_ctx *ctx,
 
 static bool io_cancel_link_cb(struct io_wq_work *work, void *data)
 {
-	return io_match_link(container_of(work, struct io_kiocb, work), data);
+	struct io_kiocb *req = container_of(work, struct io_kiocb, work);
+	bool ret;
+
+	if (req->flags & REQ_F_LINK_TIMEOUT) {
+		unsigned long flags;
+		struct io_ring_ctx *ctx = req->ctx;
+
+		/* protect against races with linked timeouts */
+		spin_lock_irqsave(&ctx->completion_lock, flags);
+		ret = io_match_link(req, data);
+		spin_unlock_irqrestore(&ctx->completion_lock, flags);
+	} else {
+		ret = io_match_link(req, data);
+	}
+	return ret;
 }
 
 static void io_attempt_cancel(struct io_ring_ctx *ctx, struct io_kiocb *req)

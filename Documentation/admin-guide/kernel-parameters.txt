@@ -4598,6 +4598,14 @@
 			Memory area to be used by remote processor image,
 			managed by CMA.
 
+	rqshare=	[X86] Select the MuQSS scheduler runqueue sharing type.
+			Format: <string>
+			smt -- Share SMT (hyperthread) sibling runqueues
+			mc -- Share MC (multicore) sibling runqueues
+			smp -- Share SMP runqueues
+			none -- So not share any runqueues
+			Default value is mc
+
 	rw		[KNL] Mount root device read-write on boot
 
 	S		[KNL] Run init in single mode
@@ -5830,6 +5838,14 @@
 			delta of virtualized Xen timers, where lower values
 			improve timer resolution at the expense of processing
 			more timer interrupts.
+
+	xen.event_eoi_delay=	[XEN]
+			How long to delay EOI handling in case of event
+			storms (jiffies). Default is 10.
+
+	xen.event_loop_timeout=	[XEN]
+			After which time (jiffies) the event handling loop
+			should start to delay EOI handling. Default is 2.
 
 	nopv=		[X86,XEN,KVM,HYPER_V,VMWARE]
 			Disables the PV optimizations forcing the guest to run

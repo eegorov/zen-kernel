@@ -492,8 +492,13 @@ trace_selftest_function_recursion(void)
 	unregister_ftrace_function(&test_rec_probe);
 
 	ret = -1;
-	if (trace_selftest_recursion_cnt != 1) {
-		pr_cont("*callback not called once (%d)* ",
+	/*
+	 * Recursion allows for transitions between context,
+	 * and may call the callback twice.
+	 */
+	if (trace_selftest_recursion_cnt != 1 &&
+	    trace_selftest_recursion_cnt != 2) {
+		pr_cont("*callback not called once (or twice) (%d)* ",
 			trace_selftest_recursion_cnt);
 		goto out;
 	}
@@ -1048,10 +1053,15 @@ static int trace_wakeup_test_thread(void *data)
 {
 	/* Make this a -deadline thread */
 	static const struct sched_attr attr = {
+#ifdef CONFIG_SCHED_MUQSS
+		/* No deadline on MuQSS, use RR */
+		.sched_policy = SCHED_RR,
+#else
 		.sched_policy = SCHED_DEADLINE,
 		.sched_runtime = 100000ULL,
 		.sched_deadline = 10000000ULL,
 		.sched_period = 10000000ULL
+#endif
 	};
 	struct wakeup_test_data *x = data;
 
