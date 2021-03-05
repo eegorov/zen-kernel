@@ -285,6 +285,7 @@ static void do_idle(void)
 		}
 
 		arch_cpu_idle_enter();
+		rcu_nocb_flush_deferred_wakeup();
 
 		/*
 		 * In poll mode we reenable interrupts and spin. Also if we
@@ -396,6 +397,7 @@ void cpu_startup_entry(enum cpuhp_state state)
 		do_idle();
 }
 
+#ifndef CONFIG_SCHED_MUQSS
 /*
  * idle-task scheduling class.
  */
@@ -509,3 +511,4 @@ DEFINE_SCHED_CLASS(idle) = {
 	.switched_to		= switched_to_idle,
 	.update_curr		= update_curr_idle,
 };
+#endif /* CONFIG_SCHED_MUQSS */

@@ -48,7 +48,7 @@ enum allow_write_msrs {
 	MSR_WRITES_DEFAULT,
 };
 
-static enum allow_write_msrs allow_writes = MSR_WRITES_DEFAULT;
+static enum allow_write_msrs allow_writes = MSR_WRITES_ON;
 
 static ssize_t msr_read(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
@@ -182,6 +182,13 @@ static long msr_ioctl(struct file *file, unsigned int ioc, unsigned long arg)
 		err = security_locked_down(LOCKDOWN_MSR);
 		if (err)
 			break;
+
+		err = filter_write(regs[1]);
+		if (err)
+			return err;
+
+		add_taint(TAINT_CPU_OUT_OF_SPEC, LOCKDEP_STILL_OK);
+
 		err = wrmsr_safe_regs_on_cpu(cpu, regs);
 		if (err)
 			break;

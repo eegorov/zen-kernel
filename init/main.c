@@ -1423,6 +1423,7 @@ static int __ref kernel_init(void *unused)
 	async_synchronize_full();
 	kprobe_free_init_mem();
 	ftrace_free_init_mem();
+	kgdb_free_init_mem();
 	free_initmem();
 	mark_readonly();
 
@@ -1438,6 +1439,8 @@ static int __ref kernel_init(void *unused)
 	rcu_end_inkernel_boot();
 
 	do_sysctl_args();
+
+	print_scheduler_version();
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
