@@ -461,10 +461,9 @@ static int dd_request_merge(struct request_queue *q, struct request **rq,
 	return ELEVATOR_NO_MERGE;
 }
 
-static bool dd_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio,
+static bool dd_bio_merge(struct request_queue *q, struct bio *bio,
 		unsigned int nr_segs)
 {
-	struct request_queue *q = hctx->queue;
 	struct deadline_data *dd = q->elevator->elevator_data;
 	struct request *free = NULL;
 	bool ret;
@@ -794,12 +793,21 @@ static struct elevator_type mq_deadline = {
 	.queue_debugfs_attrs = deadline_queue_debugfs_attrs,
 #endif
 	.elevator_attrs = deadline_attrs,
+#ifdef CONFIG_MQ_IOSCHED_DEADLINE_NODEFAULT
+	.elevator_name = "mq-deadline-nodefault",
+	.elevator_alias = "deadline-nodefault",
+#else
 	.elevator_name = "mq-deadline",
 	.elevator_alias = "deadline",
+#endif
 	.elevator_features = ELEVATOR_F_ZBD_SEQ_WRITE,
 	.elevator_owner = THIS_MODULE,
 };
+#ifdef CONFIG_MQ_IOSCHED_DEADLINE_NODEFAULT
+MODULE_ALIAS("mq-deadline-nodefault-iosched");
+#else
 MODULE_ALIAS("mq-deadline-iosched");
+#endif
 
 static int __init deadline_init(void)
 {

@@ -1869,13 +1869,6 @@
 			bypassed by not enabling DMAR with this option. In
 			this case, gfx device will use physical address for
 			DMA.
-		forcedac [X86-64]
-			With this option iommu will not optimize to look
-			for io virtual address below 32-bit forcing dual
-			address cycle on pci bus for cards supporting greater
-			than 32-bit addressing. The default is to look
-			for translation below 32-bit and if not available
-			then look in the higher range.
 		strict [Default Off]
 			With this option on every unmap_single operation will
 			result in a hardware IOTLB flush operation as opposed
@@ -1907,6 +1900,9 @@
 			disable
 			  Do not enable intel_pstate as the default
 			  scaling driver for the supported processors
+			enable
+			  Enable intel_pstate in-case "disable" was passed
+			  previously in the kernel boot parameters
 			passive
 			  Use intel_pstate as a scaling driver, but configure it
 			  to work with generic cpufreq governors (instead of
@@ -1963,6 +1959,14 @@
 		nopt		[X86]
 		nobypass	[PPC/POWERNV]
 			Disable IOMMU bypass, using IOMMU for PCI devices.
+
+	iommu.forcedac=	[ARM64, X86] Control IOVA allocation for PCI devices.
+			Format: { "0" | "1" }
+			0 - Try to allocate a 32-bit DMA address first, before
+			  falling back to the full range if needed.
+			1 - Allocate directly from the full usable range,
+			  forcing Dual Address Cycle for PCI cards supporting
+			  greater than 32-bit addressing.
 
 	iommu.strict=	[ARM64] Configure TLB invalidation behaviour
 			Format: { "0" | "1" }
@@ -3660,6 +3664,15 @@
 		nomsi		[MSI] If the PCI_MSI kernel config parameter is
 				enabled, this kernel boot option can be used to
 				disable the use of MSI interrupts system-wide.
+		pcie_acs_override =
+					[PCIE] Override missing PCIe ACS support for:
+				downstream
+					All downstream ports - full ACS capabilities
+				multfunction
+					All multifunction devices - multifunction ACS subset
+				id:nnnn:nnnn
+					Specfic device - full ACS capabilities
+					Specified as vid:did (vendor/device ID) in hex
 		noioapicquirk	[APIC] Disable all boot interrupt quirks.
 				Safety option to keep boot IRQs enabled. This
 				should never be necessary.
@@ -4622,11 +4635,6 @@
 			Reserves a hole at the top of the kernel virtual
 			address space.
 
-	reservelow=	[X86]
-			Format: nn[K]
-			Set the amount of memory to reserve for BIOS at
-			the bottom of the address space.
-
 	reset_devices	[KNL] Force drivers to reset the underlying device
 			during initialization.
 
@@ -4708,6 +4716,15 @@
 			[KNL,ARM,CMA] Remoteproc physical memory block.
 			Memory area to be used by remote processor image,
 			managed by CMA.
+
+	rqshare=	[X86] Select the MuQSS scheduler runqueue sharing type.
+			Format: <string>
+			smt -- Share SMT (hyperthread) sibling runqueues
+			mc -- Share MC (multicore) sibling runqueues
+			llc -- Share MC (multicore) sibling runqueues with adjacent LLC
+			smp -- Share SMP runqueues
+			none -- Do not share any runqueues
+			Default value is mc
 
 	rw		[KNL] Mount root device read-write on boot
 

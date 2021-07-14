@@ -784,7 +784,8 @@ static int fuse_check_page(struct page *page)
 	       1 << PG_lru |
 	       1 << PG_active |
 	       1 << PG_reclaim |
-	       1 << PG_waiters))) {
+	       1 << PG_waiters |
+	       LRU_GEN_MASK | LRU_USAGE_MASK))) {
 		dump_page(page, "fuse: trying to steal weird page");
 		return 1;
 	}
@@ -2233,11 +2234,8 @@ static long fuse_dev_ioctl(struct file *file, unsigned int cmd,
 	int oldfd;
 	struct fuse_dev *fud = NULL;
 
-	if (_IOC_TYPE(cmd) != FUSE_DEV_IOC_MAGIC)
-		return -ENOTTY;
-
-	switch (_IOC_NR(cmd)) {
-	case _IOC_NR(FUSE_DEV_IOC_CLONE):
+	switch (cmd) {
+	case FUSE_DEV_IOC_CLONE:
 		res = -EFAULT;
 		if (!get_user(oldfd, (__u32 __user *)arg)) {
 			struct file *old = fget(oldfd);
