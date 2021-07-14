@@ -1901,7 +1901,8 @@ static int console_trylock_spinning(void)
  * log_buf[start] to log_buf[end - 1].
  * The console_lock must be held.
  */
-static void call_console_drivers(const char *ext_text, size_t ext_len,
+static void call_console_drivers(int level,
+				 const char *ext_text, size_t ext_len,
 				 const char *text, size_t len)
 {
 	static char dropped_text[64];
@@ -1931,11 +1932,11 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
 		    !(con->flags & CON_ANYTIME))
 			continue;
 		if (con->flags & CON_EXTENDED)
-			con->write(con, ext_text, ext_len);
+			con->write(con, ext_text, ext_len, level);
 		else {
 			if (dropped_len)
-				con->write(con, dropped_text, dropped_len);
-			con->write(con, text, len);
+				con->write(con, dropped_text, dropped_len, level);
+			con->write(con, text, len, level);
 		}
 	}
 }
@@ -2248,7 +2249,8 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 				  struct dev_printk_info *dev_info) { return 0; }
 static void console_lock_spinning_enable(void) { }
 static int console_lock_spinning_disable_and_check(void) { return 0; }
-static void call_console_drivers(const char *ext_text, size_t ext_len,
+static void call_console_drivers(int level,
+				 const char *ext_text, size_t ext_len,
 				 const char *text, size_t len) {}
 static bool suppress_message_printing(int level) { return false; }
 
@@ -2270,7 +2272,7 @@ asmlinkage __visible void early_printk(const char *fmt, ...)
 	n = vscnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	early_console->write(early_console, buf, n);
+	early_console->write(early_console, buf, n, 0);
 }
 #endif
 
@@ -2585,6 +2587,7 @@ again:
 	for (;;) {
 		size_t ext_len = 0;
 		size_t len;
+		int level;
 
 		printk_safe_enter_irqsave(flags);
 skip:
@@ -2596,7 +2599,8 @@ skip:
 			console_seq = r.info->seq;
 		}
 
-		if (suppress_message_printing(r.info->level)) {
+		level = r.info->level;
+		if (suppress_message_printing(level)) {
 			/*
 			 * Skip record we have buffered and already printed
 			 * directly to the console when we received it, and
@@ -2640,7 +2644,7 @@ skip:
 		console_lock_spinning_enable();
 
 		stop_critical_timings();	/* don't trace print latency */
-		call_console_drivers(ext_text, ext_len, text, len);
+		call_console_drivers(level, ext_text, ext_len, text, len);
 		start_critical_timings();
 
 		if (console_lock_spinning_disable_and_check()) {
