@@ -216,7 +216,7 @@ static void task_sample_cputime(struct task_struct *p, u64 *samples)
 	u64 stime, utime;
 
 	task_cputime(p, &utime, &stime);
-	store_samples(samples, stime, utime, p->se.sum_exec_runtime);
+	store_samples(samples, stime, utime, tsk_seruntime(p));
 }
 
 static void proc_sample_cputime_atomic(struct task_cputime_atomic *at,
@@ -850,7 +850,7 @@ static void check_thread_timers(struct task_struct *tsk,
 	soft = task_rlimit(tsk, RLIMIT_RTTIME);
 	if (soft != RLIM_INFINITY) {
 		/* Task RT timeout is accounted in jiffies. RTTIME is usec */
-		unsigned long rttime = tsk->rt.timeout * (USEC_PER_SEC / HZ);
+		unsigned long rttime = tsk_rttimeout(tsk) * (USEC_PER_SEC / HZ);
 		unsigned long hard = task_rlimit_max(tsk, RLIMIT_RTTIME);
 
 		/* At the hard limit, send SIGKILL. No further action. */
@@ -991,6 +991,11 @@ static void posix_cpu_timer_rearm(struct k_itimer *timer)
 	if (!p)
 		goto out;
 
+	/* Protect timer list r/w in arm_timer() */
+	sighand = lock_task_sighand(p, &flags);
+	if (unlikely(sighand == NULL))
+		goto out;
+
 	/*
 	 * Fetch the current sample and update the timer's expiry time.
 	 */
@@ -1000,11 +1005,6 @@ static void posix_cpu_timer_rearm(struct k_itimer *timer)
 		now = cpu_clock_sample_group(clkid, p, true);
 
 	bump_cpu_timer(timer, now);
-
-	/* Protect timer list r/w in arm_timer() */
-	sighand = lock_task_sighand(p, &flags);
-	if (unlikely(sighand == NULL))
-		goto out;
 
 	/*
 	 * Now re-arm for the new expiry time.

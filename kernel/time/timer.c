@@ -44,6 +44,9 @@
 #include <linux/slab.h>
 #include <linux/compat.h>
 #include <linux/random.h>
+#ifdef CONFIG_SCHED_MUQSS
+#include <linux/freezer.h>
+#endif
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
@@ -207,6 +210,7 @@ struct timer_base {
 	unsigned int		cpu;
 	bool			next_expiry_recalc;
 	bool			is_idle;
+	bool			timers_pending;
 	DECLARE_BITMAP(pending_map, WHEEL_SIZE);
 	struct hlist_head	vectors[WHEEL_SIZE];
 } ____cacheline_aligned;
@@ -595,6 +599,7 @@ static void enqueue_timer(struct timer_base *base, struct timer_list *timer,
 		 * can reevaluate the wheel:
 		 */
 		base->next_expiry = bucket_expiry;
+		base->timers_pending = true;
 		base->next_expiry_recalc = false;
 		trigger_dyntick_cpu(base, timer);
 	}
@@ -1596,6 +1601,7 @@ static unsigned long __next_timer_interrupt(struct timer_base *base)
 	}
 
 	base->next_expiry_recalc = false;
+	base->timers_pending = !(next == base->clk + NEXT_TIMER_MAX_DELTA);
 
 	return next;
 }
@@ -1605,7 +1611,7 @@ static unsigned long __next_timer_interrupt(struct timer_base *base)
  * Check, if the next hrtimer event is before the next timer wheel
  * event:
  */
-static u64 cmp_next_hrtimer_event(u64 basem, u64 expires)
+static u64 cmp_next_hrtimer_event(struct timer_base *base, u64 basem, u64 expires)
 {
 	u64 nextevt = hrtimer_get_next_event();
 
@@ -1622,6 +1628,11 @@ static u64 cmp_next_hrtimer_event(u64 basem, u64 expires)
 	 */
 	if (nextevt <= basem)
 		return basem;
+
+#ifdef CONFIG_SCHED_MUQSS
+	if (nextevt < expires && nextevt - basem <= TICK_NSEC)
+		base->is_idle = false;
+#endif
 
 	/*
 	 * Round up to the next jiffie. High resolution timers are
@@ -1647,7 +1658,6 @@ u64 get_next_timer_interrupt(unsigned long basej, u64 basem)
 	struct timer_base *base = this_cpu_ptr(&timer_bases[BASE_STD]);
 	u64 expires = KTIME_MAX;
 	unsigned long nextevt;
-	bool is_max_delta;
 
 	/*
 	 * Pretend that there is no timer pending if the cpu is offline.
@@ -1660,7 +1670,6 @@ u64 get_next_timer_interrupt(unsigned long basej, u64 basem)
 	if (base->next_expiry_recalc)
 		base->next_expiry = __next_timer_interrupt(base);
 	nextevt = base->next_expiry;
-	is_max_delta = (nextevt == base->clk + NEXT_TIMER_MAX_DELTA);
 
 	/*
 	 * We have a fresh next event. Check whether we can forward the
@@ -1678,7 +1687,7 @@ u64 get_next_timer_interrupt(unsigned long basej, u64 basem)
 		expires = basem;
 		base->is_idle = false;
 	} else {
-		if (!is_max_delta)
+		if (base->timers_pending)
 			expires = basem + (u64)(nextevt - basej) * TICK_NSEC;
 		/*
 		 * If we expect to sleep more than a tick, mark the base idle.
@@ -1692,7 +1701,7 @@ u64 get_next_timer_interrupt(unsigned long basej, u64 basem)
 	}
 	raw_spin_unlock(&base->lock);
 
-	return cmp_next_hrtimer_event(basem, expires);
+	return cmp_next_hrtimer_event(base, basem, expires);
 }
 
 /**
@@ -1886,6 +1895,18 @@ signed long __sched schedule_timeout(signed long timeout)
 
 	expire = timeout + jiffies;
 
+#if defined(CONFIG_HIGH_RES_TIMERS) && defined(CONFIG_SCHED_MUQSS)
+	if (timeout == 1 && hrtimer_resolution < NSEC_PER_SEC / HZ) {
+		/*
+		 * Special case 1 as being a request for the minimum timeout
+		 * and use highres timers to timeout after 1ms to workaround
+		 * the granularity of low Hz tick timers.
+		 */
+		if (!schedule_min_hrtimeout())
+			return 0;
+		goto out_timeout;
+	}
+#endif
 	timer.task = current;
 	timer_setup_on_stack(&timer.timer, process_timeout, 0);
 	__mod_timer(&timer.timer, expire, MOD_TIMER_NOTPENDING);
@@ -1895,6 +1916,9 @@ signed long __sched schedule_timeout(signed long timeout)
 	/* Remove the timer from the object tracker */
 	destroy_timer_on_stack(&timer.timer);
 
+#if defined(CONFIG_HIGH_RES_TIMERS) && defined(CONFIG_SCHED_MUQSS)
+out_timeout:
+#endif
 	timeout = expire - jiffies;
 
  out:
@@ -1961,6 +1985,7 @@ int timers_prepare_cpu(unsigned int cpu)
 		base = per_cpu_ptr(&timer_bases[b], cpu);
 		base->clk = jiffies;
 		base->next_expiry = base->clk + NEXT_TIMER_MAX_DELTA;
+		base->timers_pending = false;
 		base->is_idle = false;
 	}
 	return 0;
@@ -2042,6 +2067,18 @@ void msleep(unsigned int msecs)
 {
 	unsigned long timeout = msecs_to_jiffies(msecs) + 1;
 
+#ifdef CONFIG_SCHED_MUQSS
+	/*
+	 * Use high resolution timers where the resolution of tick based
+	 * timers is inadequate.
+	 */
+	if (timeout < 6 && hrtimer_resolution < NSEC_PER_SEC / HZ && !pm_freezing) {
+		while (msecs)
+			msecs = schedule_msec_hrtimeout_uninterruptible(msecs);
+		return;
+	}
+#endif
+
 	while (timeout)
 		timeout = schedule_timeout_uninterruptible(timeout);
 }
@@ -2055,6 +2092,14 @@ EXPORT_SYMBOL(msleep);
 unsigned long msleep_interruptible(unsigned int msecs)
 {
 	unsigned long timeout = msecs_to_jiffies(msecs) + 1;
+
+#ifdef CONFIG_SCHED_MUQSS
+	if (timeout < 6 && hrtimer_resolution < NSEC_PER_SEC / HZ && !pm_freezing) {
+		while (msecs && !signal_pending(current))
+			msecs = schedule_msec_hrtimeout_interruptible(msecs);
+		return msecs;
+	}
+#endif
 
 	while (timeout && !signal_pending(current))
 		timeout = schedule_timeout_interruptible(timeout);
