@@ -941,11 +941,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * time - but meanwhile we still have a functioning scheduler.
 	 */
 	sched_init();
-	/*
-	 * Disable preemption - early bootup scheduling is extremely
-	 * fragile until we cpu_idle() for the first time.
-	 */
-	preempt_disable();
+
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))
 		local_irq_disable();
@@ -1465,6 +1461,8 @@ static int __ref kernel_init(void *unused)
 	rcu_end_inkernel_boot();
 
 	do_sysctl_args();
+
+	print_scheduler_version();
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);

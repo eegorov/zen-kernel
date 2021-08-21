@@ -7,10 +7,10 @@
  *	Test requeue mechanism of futex2, using 32bit sized futexes.
  *
  * AUTHOR
- *	André Almeida <andrealmeid@collabora.com>
+ *	AndrÃ© Almeida <andrealmeid@collabora.com>
  *
  * HISTORY
- *      2021-Feb-5: Initial version by André <andrealmeid@collabora.com>
+ *      2021-Feb-5: Initial version by AndrÃ© <andrealmeid@collabora.com>
  *
  *****************************************************************************/
 
@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
 				      res ? strerror(errno) : "");
 		ret = RET_FAIL;
 	} else {
-		ksft_test_result_pass("futex2_requeue simple\n");
+		ksft_test_result_pass("futex2_requeue simple succeeds\n");
 	}
 
 
@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
 				      res ? strerror(errno) : "");
 		ret = RET_FAIL;
 	} else {
-		ksft_test_result_pass("futex2_requeue\n");
+		ksft_test_result_pass("futex2_requeue succeeds\n");
 	}
 
 	ksft_print_cnts();

@@ -12,7 +12,7 @@
  *
  * HISTORY
  *      2009-Nov-14: Initial version by Gowrishankar <gowrishankar.m@in.ibm.com>
- *      2021-Feb-5: Add futex2 test by André <andrealmeid@collabora.com>
+ *      2021-Feb-5: Add futex2 test by AndrÃ© <andrealmeid@collabora.com>
  *
  *****************************************************************************/
 
@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
 		     res ? errno : res, res ? strerror(errno) : "");
 		ret = RET_FAIL;
 	} else {
-		ksft_test_result_pass("futex_wait wouldblock\n");
+		ksft_test_result_pass("futex_wait wouldblock succeeds\n");
 	}
 
 	/* setting absolute timeout for futex2 */
@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
 		     res ? errno : res, res ? strerror(errno) : "");
 		ret = RET_FAIL;
 	} else {
-		ksft_test_result_pass("futex2_wait wouldblock\n");
+		ksft_test_result_pass("futex2_wait wouldblock succeeds\n");
 	}
 
 	ksft_print_cnts();

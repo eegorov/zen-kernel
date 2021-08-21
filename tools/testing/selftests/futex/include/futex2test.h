@@ -7,15 +7,14 @@
  *	Futex2 library addons for old futex library
  *
  * AUTHOR
- *	André Almeida <andrealmeid@collabora.com>
+ *	AndrÃ© Almeida <andrealmeid@collabora.com>
  *
  * HISTORY
- *      2021-Feb-5: Initial version by André <andrealmeid@collabora.com>
+ *      2021-Feb-5: Initial version by AndrÃ© <andrealmeid@collabora.com>
  *
  *****************************************************************************/
 #include "futextest.h"
 #include <stdio.h>
-#include <stdint.h>
 
 #define NSEC_PER_SEC	1000000000L
 
@@ -31,6 +30,15 @@
 
 #ifndef FUTEX_SHARED_FLAG
 #define FUTEX_SHARED_FLAG 8
+#endif
+
+#ifndef FUTEX_WAITV_MAX
+#define FUTEX_WAITV_MAX 128
+struct futex_waitv {
+	void *uaddr;
+	unsigned int val;
+	unsigned int flags;
+};
 #endif
 
 /*
@@ -66,7 +74,7 @@ int gettime64(clock_t clockid, struct timespec64 *tv)
  * @flags: Operation flags
  * @timo:  Optional timeout for operation
  */
-static inline int futex2_wait(volatile void *uaddr, uint64_t val,
+static inline int futex2_wait(volatile void *uaddr, unsigned long val,
 			      unsigned long flags, struct timespec64 *timo)
 {
 	return syscall(__NR_futex_wait, uaddr, val, flags, timo);

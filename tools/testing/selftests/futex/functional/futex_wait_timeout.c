@@ -11,7 +11,7 @@
  *
  * HISTORY
  *      2009-Nov-6: Initial version by Darren Hart <dvhart@linux.intel.com>
- *      2021-Feb-5: Add futex2 test by André <andrealmeid@collabora.com>
+ *      2021-Feb-5: Add futex2 test by AndrÃ© <andrealmeid@collabora.com>
  *
  *****************************************************************************/
 

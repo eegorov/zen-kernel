@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-INCLUDES := -I../include -I../../
+INCLUDES := -I../include -I../../ -I../../../../../usr/include/
 CFLAGS := $(CFLAGS) -g -O2 -Wall -D_GNU_SOURCE -pthread $(INCLUDES)
 LDLIBS := -lpthread -lrt
 
@@ -18,8 +18,7 @@ TEST_GEN_FILES := \
 	futex_wait_private_mapped_file \
 	futex2_wait \
 	futex2_waitv \
-	futex2_requeue \
-	futex2_sizes
+	futex2_requeue
 
 TEST_PROGS := run.sh
 

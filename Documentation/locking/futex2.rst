@@ -4,7 +4,7 @@
 futex2
 ======
 
-:Author: André Almeida <andrealmeid@collabora.com>
+:Author: AndrÃ© Almeida <andrealmeid@collabora.com>
 
 futex, or fast user mutex, is a set of syscalls to allow userspace to create
 performant synchronization mechanisms, such as mutexes, semaphores and
@@ -29,7 +29,7 @@ The ``flag`` argument
 ---------------------
 
 The flag is used to specify the size of the futex word
-(FUTEX_[8, 16, 32, 64]). It's mandatory to define one, since there's no
+(FUTEX_[8, 16, 32]). It's mandatory to define one, since there's no
 default size.
 
 By default, the timeout uses a monotonic clock, but can be used as a realtime
@@ -44,8 +44,8 @@ need to be defined as shared and the flag FUTEX_SHARED_FLAG is used to set that.
 By default, the operation has no NUMA-awareness, meaning that the user can't
 choose the memory node where the kernel side futex data will be stored. The
 user can choose the node where it wants to operate by setting the
-FUTEX_NUMA_FLAG and using the following structure (where X can be 8, 16, 32 or
-64)::
+FUTEX_NUMA_FLAG and using the following structure (where X can be 8, 16, or
+32)::
 
  struct futexX_numa {
          __uX value;

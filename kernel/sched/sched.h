@@ -2,6 +2,19 @@
 /*
  * Scheduler internal types and methods:
  */
+#ifdef CONFIG_SCHED_MUQSS
+#include "MuQSS.h"
+
+/* Begin compatibility wrappers for MuQSS/CFS differences */
+#define rq_rt_nr_running(rq) ((rq)->rt_nr_running)
+#define rq_h_nr_running(rq) ((rq)->nr_running)
+
+#else /* CONFIG_SCHED_MUQSS */
+
+#define rq_rt_nr_running(rq) ((rq)->rt.rt_nr_running)
+#define rq_h_nr_running(rq) ((rq)->cfs.h_nr_running)
+
+
 #include <linux/sched.h>
 
 #include <linux/sched/autogroup.h>
@@ -990,6 +1003,7 @@ struct rq {
 
 	struct callback_head	*balance_callback;
 
+
 	unsigned char		nohz_idle_balance;
 	unsigned char		idle_balance;
 
@@ -1561,6 +1575,7 @@ extern int group_balance_cpu(struct sched_group *sg);
 #ifdef CONFIG_SCHED_DEBUG
 void update_sched_domain_debugfs(void);
 void dirty_sched_domain_sysctl(int cpu);
+
 #else
 static inline void update_sched_domain_debugfs(void)
 {
@@ -1568,6 +1583,7 @@ static inline void update_sched_domain_debugfs(void)
 static inline void dirty_sched_domain_sysctl(int cpu)
 {
 }
+
 #endif
 
 extern int sched_update_scaling(void);
@@ -2539,20 +2555,27 @@ static __always_inline
 unsigned long uclamp_rq_util_with(struct rq *rq, unsigned long util,
 				  struct task_struct *p)
 {
-	unsigned long min_util;
-	unsigned long max_util;
+	unsigned long min_util = 0;
+	unsigned long max_util = 0;
 
 	if (!static_branch_likely(&sched_uclamp_used))
 		return util;
 
-	min_util = READ_ONCE(rq->uclamp[UCLAMP_MIN].value);
-	max_util = READ_ONCE(rq->uclamp[UCLAMP_MAX].value);
-
 	if (p) {
-		min_util = max(min_util, uclamp_eff_value(p, UCLAMP_MIN));
-		max_util = max(max_util, uclamp_eff_value(p, UCLAMP_MAX));
+		min_util = uclamp_eff_value(p, UCLAMP_MIN);
+		max_util = uclamp_eff_value(p, UCLAMP_MAX);
+
+		/*
+		 * Ignore last runnable task's max clamp, as this task will
+		 * reset it. Similarly, no need to read the rq's min clamp.
+		 */
+		if (rq->uclamp_flags & UCLAMP_FLAG_IDLE)
+			goto out;
 	}
 
+	min_util = max_t(unsigned long, min_util, READ_ONCE(rq->uclamp[UCLAMP_MIN].value));
+	max_util = max_t(unsigned long, max_util, READ_ONCE(rq->uclamp[UCLAMP_MAX].value));
+out:
 	/*
 	 * Since CPU's {min,max}_util clamps are MAX aggregated considering
 	 * RUNNABLE tasks with _different_ clamps, we can end up with an
@@ -2749,3 +2772,24 @@ extern int sched_dynamic_mode(const char *str);
 extern void sched_dynamic_update(int mode);
 #endif
 
+/* MuQSS compatibility functions */
+#ifdef CONFIG_64BIT
+static inline u64 read_sum_exec_runtime(struct task_struct *t)
+{
+	return t->se.sum_exec_runtime;
+}
+#else
+static inline u64 read_sum_exec_runtime(struct task_struct *t)
+{
+	u64 ns;
+	struct rq_flags rf;
+	struct rq *rq;
+
+	rq = task_rq_lock(t, &rf);
+	ns = t->se.sum_exec_runtime;
+	task_rq_unlock(rq, t, &rf);
+
+	return ns;
+}
+#endif
+#endif /* CONFIG_SCHED_MUQSS */
