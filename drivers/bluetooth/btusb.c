@@ -1757,9 +1757,9 @@ static void btusb_work(struct work_struct *work)
 			 */
 			if (btusb_find_altsetting(data, 6))
 				new_alts = 6;
-			else if (test_bit(BTUSB_USE_ALT3_FOR_WBS, &data->flags) &&
-					hdev->sco_mtu >= 72 &&
-					btusb_find_altsetting(data, 3))
+			else if (btusb_find_altsetting(data, 3) &&
+				 hdev->sco_mtu >= 72 &&
+				 test_bit(BTUSB_USE_ALT3_FOR_WBS, &data->flags))
 				new_alts = 3;
 			else
 				new_alts = 1;
