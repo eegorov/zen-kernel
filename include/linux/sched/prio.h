@@ -14,15 +14,35 @@
  */
 
 #define MAX_RT_PRIO		100
-#ifdef CONFIG_SCHED_MUQSS
-#define ISO_PRIO		(MAX_RT_PRIO)
-#define NORMAL_PRIO		(MAX_RT_PRIO + 1)
-#define IDLE_PRIO		(MAX_RT_PRIO + 2)
-#define PRIO_LIMIT		((IDLE_PRIO) + 1)
-#endif /* CONFIG_SCHED_MUQSS */
 
 #define MAX_PRIO		(MAX_RT_PRIO + NICE_WIDTH)
 #define DEFAULT_PRIO		(MAX_RT_PRIO + NICE_WIDTH / 2)
+
+#ifdef CONFIG_SCHED_ALT
+
+/* Undefine MAX_PRIO and DEFAULT_PRIO */
+#undef MAX_PRIO
+#undef DEFAULT_PRIO
+
+/* +/- priority levels from the base priority */
+#ifdef CONFIG_SCHED_BMQ
+#define MAX_PRIORITY_ADJ	(7)
+
+#define MIN_NORMAL_PRIO		(MAX_RT_PRIO)
+#define MAX_PRIO		(MIN_NORMAL_PRIO + NICE_WIDTH)
+#define DEFAULT_PRIO		(MIN_NORMAL_PRIO + NICE_WIDTH / 2)
+#endif
+
+#ifdef CONFIG_SCHED_PDS
+#define MAX_PRIORITY_ADJ	(0)
+
+#define MIN_NORMAL_PRIO		(128)
+#define NORMAL_PRIO_NUM		(64)
+#define MAX_PRIO		(MIN_NORMAL_PRIO + NORMAL_PRIO_NUM)
+#define DEFAULT_PRIO		(MAX_PRIO - NICE_WIDTH / 2)
+#endif
+
+#endif /* CONFIG_SCHED_ALT */
 
 /*
  * Convert user-nice values [ -20 ... 0 ... 19 ]

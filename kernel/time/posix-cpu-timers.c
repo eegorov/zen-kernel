@@ -801,7 +801,7 @@ static void collect_posix_cputimers(struct posix_cputimers *pct, u64 *samples,
 	}
 }
 
-#ifndef CONFIG_SCHED_MUQSS
+#ifndef CONFIG_SCHED_ALT
 static inline void check_dl_overrun(struct task_struct *tsk)
 {
 	if (tsk->dl.dl_overrun) {
@@ -837,7 +837,7 @@ static void check_thread_timers(struct task_struct *tsk,
 	u64 samples[CPUCLOCK_MAX];
 	unsigned long soft;
 
-#ifndef CONFIG_SCHED_MUQSS
+#ifndef CONFIG_SCHED_ALT
 	if (dl_task(tsk))
 		check_dl_overrun(tsk);
 #endif
@@ -1090,7 +1090,7 @@ static inline bool fastpath_timer_check(struct task_struct *tsk)
 			return true;
 	}
 
-#ifndef CONFIG_SCHED_MUQSS
+#ifndef CONFIG_SCHED_ALT
 	if (dl_task(tsk) && tsk->dl.dl_overrun)
 		return true;
 #endif

@@ -2,18 +2,9 @@
 /*
  * Scheduler internal types and methods:
  */
-#ifdef CONFIG_SCHED_MUQSS
-#include "MuQSS.h"
-
-/* Begin compatibility wrappers for MuQSS/CFS differences */
-#define rq_rt_nr_running(rq) ((rq)->rt_nr_running)
-#define rq_h_nr_running(rq) ((rq)->nr_running)
-
-#else /* CONFIG_SCHED_MUQSS */
-
-#define rq_rt_nr_running(rq) ((rq)->rt.rt_nr_running)
-#define rq_h_nr_running(rq) ((rq)->cfs.h_nr_running)
-
+#ifdef CONFIG_SCHED_ALT
+#include "alt_sched.h"
+#else
 
 #include <linux/sched.h>
 
@@ -239,6 +230,8 @@ static inline void update_avg(u64 *avg, u64 sample)
  * SUGOV stands for SchedUtil GOVernor.
  */
 #define SCHED_FLAG_SUGOV	0x10000000
+
+#define SCHED_DL_FLAGS (SCHED_FLAG_RECLAIM | SCHED_FLAG_DL_OVERRUN | SCHED_FLAG_SUGOV)
 
 static inline bool dl_entity_is_special(struct sched_dl_entity *dl_se)
 {
@@ -1008,7 +1001,6 @@ struct rq {
 	unsigned long		cpu_capacity_orig;
 
 	struct callback_head	*balance_callback;
-
 
 	unsigned char		nohz_idle_balance;
 	unsigned char		idle_balance;
@@ -1851,7 +1843,6 @@ extern int group_balance_cpu(struct sched_group *sg);
 #ifdef CONFIG_SCHED_DEBUG
 void update_sched_domain_debugfs(void);
 void dirty_sched_domain_sysctl(int cpu);
-
 #else
 static inline void update_sched_domain_debugfs(void)
 {
@@ -1859,7 +1850,6 @@ static inline void update_sched_domain_debugfs(void)
 static inline void dirty_sched_domain_sysctl(int cpu)
 {
 }
-
 #endif
 
 extern int sched_update_scaling(void);
@@ -3054,24 +3044,8 @@ extern int sched_dynamic_mode(const char *str);
 extern void sched_dynamic_update(int mode);
 #endif
 
-/* MuQSS compatibility functions */
-#ifdef CONFIG_64BIT
-static inline u64 read_sum_exec_runtime(struct task_struct *t)
+static inline int task_running_nice(struct task_struct *p)
 {
-	return t->se.sum_exec_runtime;
+	return (task_nice(p) > 0);
 }
-#else
-static inline u64 read_sum_exec_runtime(struct task_struct *t)
-{
-	u64 ns;
-	struct rq_flags rf;
-	struct rq *rq;
-
-	rq = task_rq_lock(t, &rf);
-	ns = t->se.sum_exec_runtime;
-	task_rq_unlock(rq, t, &rf);
-
-	return ns;
-}
-#endif
-#endif /* CONFIG_SCHED_MUQSS */
+#endif /* !CONFIG_SCHED_ALT */

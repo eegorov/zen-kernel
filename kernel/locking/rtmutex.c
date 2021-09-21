@@ -226,52 +226,55 @@ static __always_inline bool unlock_rt_mutex_safe(struct rt_mutex *lock,
 /*
  * Only use with rt_mutex_waiter_{less,equal}()
  */
-#ifdef CONFIG_SCHED_MUQSS
 #define task_to_waiter(p)	\
-	&(struct rt_mutex_waiter){ .prio = (p)->prio }
-#else
-#define task_to_waiter(p)	\
-	&(struct rt_mutex_waiter){ .prio = (p)->prio, .deadline = (p)->dl.deadline }
-#endif
+	&(struct rt_mutex_waiter){ .prio = (p)->prio, .deadline = __tsk_deadline(p) }
 
 static __always_inline int rt_mutex_waiter_less(struct rt_mutex_waiter *left,
 						struct rt_mutex_waiter *right)
 {
+#ifdef CONFIG_SCHED_PDS
+	return (left->deadline < right->deadline);
+#else
 	if (left->prio < right->prio)
 		return 1;
 
+#ifndef CONFIG_SCHED_BMQ
 	/*
 	 * If both waiters have dl_prio(), we check the deadlines of the
 	 * associated tasks.
 	 * If left waiter has a dl_prio(), and we didn't return 1 above,
 	 * then right waiter has a dl_prio() too.
 	 */
-#ifndef CONFIG_SCHED_MUQSS
 	if (dl_prio(left->prio))
 		return dl_time_before(left->deadline, right->deadline);
 #endif
 
 	return 0;
+#endif
 }
 
 static __always_inline int rt_mutex_waiter_equal(struct rt_mutex_waiter *left,
 						 struct rt_mutex_waiter *right)
 {
+#ifdef CONFIG_SCHED_PDS
+	return (left->deadline == right->deadline);
+#else
 	if (left->prio != right->prio)
 		return 0;
 
+#ifndef CONFIG_SCHED_BMQ
 	/*
 	 * If both waiters have dl_prio(), we check the deadlines of the
 	 * associated tasks.
 	 * If left waiter has a dl_prio(), and we didn't return 0 above,
 	 * then right waiter has a dl_prio() too.
 	 */
-#ifndef CONFIG_SCHED_MUQSS
 	if (dl_prio(left->prio))
 		return left->deadline == right->deadline;
 #endif
 
 	return 1;
+#endif
 }
 
 #define __node_2_waiter(node) \
@@ -663,9 +666,7 @@ static int __sched rt_mutex_adjust_prio_chain(struct task_struct *task,
 	 * the values of the node being removed.
 	 */
 	waiter->prio = task->prio;
-#ifndef CONFIG_SCHED_MUQSS
-	waiter->deadline = task->dl.deadline;
-#endif
+	waiter->deadline = __tsk_deadline(task);
 
 	rt_mutex_enqueue(lock, waiter);
 
@@ -936,9 +937,7 @@ static int __sched task_blocks_on_rt_mutex(struct rt_mutex *lock,
 	waiter->task = task;
 	waiter->lock = lock;
 	waiter->prio = task->prio;
-#ifndef CONFIG_SCHED_MUQSS
-	waiter->deadline = task->dl.deadline;
-#endif
+	waiter->deadline = __tsk_deadline(task);
 
 	/* Get the top priority waiter on the lock */
 	if (rt_mutex_has_waiters(lock))
@@ -1569,7 +1568,7 @@ void __sched __rt_mutex_init(struct rt_mutex *lock, const char *name,
 		     struct lock_class_key *key)
 {
 	debug_check_no_locks_freed((void *)lock, sizeof(*lock));
-	lockdep_init_map(&lock->dep_map, name, key, 0);
+	lockdep_init_map_wait(&lock->dep_map, name, key, 0, LD_WAIT_SLEEP);
 
 	__rt_mutex_basic_init(lock);
 }
