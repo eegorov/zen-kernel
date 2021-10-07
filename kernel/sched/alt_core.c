@@ -67,7 +67,7 @@ __read_mostly int sysctl_resched_latency_warn_once = 1;
 #define sched_feat(x)	(0)
 #endif /* CONFIG_SCHED_DEBUG */
 
-#define ALT_SCHED_VERSION "v5.14-r2"
+#define ALT_SCHED_VERSION "v5.14-r3"
 
 /* rt_prio(prio) defined in include/linux/sched/rt.h */
 #define rt_task(p)		rt_prio((p)->prio)
@@ -3475,6 +3475,7 @@ static inline void update_curr(struct rq *rq, struct task_struct *p)
 	s64 ns = rq->clock_task - p->last_ran;
 
 	p->sched_time += ns;
+	cgroup_account_cputime(p, ns);
 	account_group_exec_runtime(p, ns);
 
 	p->time_slice -= ns;
@@ -4037,6 +4038,7 @@ migrate_pending_tasks(struct rq *rq, struct rq *dest_rq, const int dest_cpu)
 		if (cpumask_test_cpu(dest_cpu, p->cpus_ptr)) {
 			__SCHED_DEQUEUE_TASK(p, rq, 0, );
 			set_task_cpu(p, dest_cpu);
+			sched_task_sanity_check(p, dest_rq);
 			__SCHED_ENQUEUE_TASK(p, dest_rq, 0);
 			nr_migrated++;
 		}
