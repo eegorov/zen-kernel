@@ -197,8 +197,6 @@ struct futex_pi_state {
  * @rt_waiter:		rt_waiter storage for use with requeue_pi
  * @requeue_pi_key:	the requeue_pi target futex key
  * @bitset:		bitset for the optional bitmasked wakeup
- * @uaddr:             userspace address of futex
- * @uval:              expected futex's value
  *
  * We use this hashed waitqueue, instead of a normal wait_queue_entry_t, so
  * we can wake only the relevant ones (hashed queues may be shared).
@@ -221,14 +219,24 @@ struct futex_q {
 	struct rt_mutex_waiter *rt_waiter;
 	union futex_key *requeue_pi_key;
 	u32 bitset;
-	u32 __user *uaddr;
-	u32 uval;
 } __randomize_layout;
 
 static const struct futex_q futex_q_init = {
 	/* list gets initialized in queue_me()*/
 	.key = FUTEX_KEY_INIT,
 	.bitset = FUTEX_BITSET_MATCH_ANY
+};
+
+/**
+ * struct futex_vector - Auxiliary struct for futex_waitv()
+ * @w: Userspace provided data
+ * @q: Kernel side data
+ *
+ * Struct used to build an array with all data need for futex_waitv()
+ */
+struct futex_vector {
+	struct futex_waitv w;
+	struct futex_q q;
 };
 
 /*
@@ -2317,29 +2325,6 @@ retry:
 	return ret;
 }
 
-/**
- * unqueue_multiple() - Remove several futexes from their futex_hash_bucket
- * @q:	The list of futexes to unqueue
- * @count: Number of futexes in the list
- *
- * Helper to unqueue a list of futexes. This can't fail.
- *
- * Return:
- *  - >=0 - Index of the last futex that was awoken;
- *  - -1  - If no futex was awoken
- */
-static int unqueue_multiple(struct futex_q *q, int count)
-{
-	int ret = -1;
-	int i;
-
-	for (i = 0; i < count; i++) {
-		if (!unqueue_me(&q[i]))
-			ret = i;
-	}
-	return ret;
-}
-
 /*
  * PI futexes can not be requeued and must remove themselves from the
  * hash bucket. The hash bucket lock (i.e. lock_ptr) is held.
@@ -2698,205 +2683,6 @@ retry_private:
 	if (uval != val) {
 		queue_unlock(*hb);
 		ret = -EWOULDBLOCK;
-	}
-
-	return ret;
-}
-
-/**
- * futex_wait_multiple_setup() - Prepare to wait and enqueue multiple futexes
- * @qs:		The corresponding futex list
- * @count:	The size of the lists
- * @flags:	Futex flags (FLAGS_SHARED, etc.)
- * @awaken:	Index of the last awoken futex
- *
- * Prepare multiple futexes in a single step and enqueue them. This may fail if
- * the futex list is invalid or if any futex was already awoken. On success the
- * task is ready to interruptible sleep.
- *
- * Return:
- *  -  1 - One of the futexes was awaken by another thread
- *  -  0 - Success
- *  - <0 - -EFAULT, -EWOULDBLOCK or -EINVAL
- */
-static int futex_wait_multiple_setup(struct futex_q *qs, int count,
-				     unsigned int flags, int *awaken)
-{
-	struct futex_hash_bucket *hb;
-	int ret, i;
-	u32 uval;
-
-	/*
-	 * Enqueuing multiple futexes is tricky, because we need to
-	 * enqueue each futex in the list before dealing with the next
-	 * one to avoid deadlocking on the hash bucket.  But, before
-	 * enqueuing, we need to make sure that current->state is
-	 * TASK_INTERRUPTIBLE, so we don't absorb any awake events, which
-	 * cannot be done before the get_futex_key of the next key,
-	 * because it calls get_user_pages, which can sleep.  Thus, we
-	 * fetch the list of futexes keys in two steps, by first pinning
-	 * all the memory keys in the futex key, and only then we read
-	 * each key and queue the corresponding futex.
-	 */
-retry:
-	for (i = 0; i < count; i++) {
-		qs[i].key = FUTEX_KEY_INIT;
-		ret = get_futex_key(qs[i].uaddr, flags & FLAGS_SHARED,
-				    &qs[i].key, FUTEX_READ);
-		if (unlikely(ret)) {
-			return ret;
-		}
-	}
-
-	set_current_state(TASK_INTERRUPTIBLE);
-
-	for (i = 0; i < count; i++) {
-		struct futex_q *q = &qs[i];
-
-		hb = queue_lock(q);
-
-		ret = get_futex_value_locked(&uval, q->uaddr);
-		if (ret) {
-			/*
-			 * We need to try to handle the fault, which
-			 * cannot be done without sleep, so we need to
-			 * undo all the work already done, to make sure
-			 * we don't miss any wake ups.  Therefore, clean
-			 * up, handle the fault and retry from the
-			 * beginning.
-			 */
-			queue_unlock(hb);
-
-			/*
-			 * Keys 0..(i-1) are implicitly put
-			 * on unqueue_multiple.
-			 */
-			*awaken = unqueue_multiple(qs, i);
-
-			__set_current_state(TASK_RUNNING);
-
-			/*
-			 * On a real fault, prioritize the error even if
-			 * some other futex was awoken.  Userspace gave
-			 * us a bad address, -EFAULT them.
-			 */
-			ret = get_user(uval, q->uaddr);
-			if (ret)
-				return ret;
-
-			/*
-			 * Even if the page fault was handled, If
-			 * something was already awaken, we can safely
-			 * give up and succeed to give a hint for userspace to
-			 * acquire the right futex faster.
-			 */
-			if (*awaken >= 0)
-				return 1;
-
-			goto retry;
-		}
-
-		if (uval != q->uval) {
-			queue_unlock(hb);
-
-			/*
-			 * If something was already awaken, we can
-			 * safely ignore the error and succeed.
-			 */
-			*awaken = unqueue_multiple(qs, i);
-			__set_current_state(TASK_RUNNING);
-			if (*awaken >= 0)
-				return 1;
-
-			return -EWOULDBLOCK;
-		}
-
-		/*
-		 * The bucket lock can't be held while dealing with the
-		 * next futex. Queue each futex at this moment so hb can
-		 * be unlocked.
-		 */
-		queue_me(&qs[i], hb);
-	}
-	return 0;
-}
-
-/**
- * futex_wait_multiple() - Prepare to wait on and enqueue several futexes
- * @qs:		The list of futexes to wait on
- * @op:		Operation code from futex's syscall
- * @count:	The number of objects
- * @abs_time:	Timeout before giving up and returning to userspace
- *
- * Entry point for the FUTEX_WAIT_MULTIPLE futex operation, this function
- * sleeps on a group of futexes and returns on the first futex that
- * triggered, or after the timeout has elapsed.
- *
- * Return:
- *  - >=0 - Hint to the futex that was awoken
- *  - <0  - On error
- */
-static int futex_wait_multiple(struct futex_q *qs, int op,
-			       u32 count, ktime_t *abs_time)
-{
-	struct hrtimer_sleeper timeout, *to;
-	int ret, flags = 0, hint = 0;
-	unsigned int i;
-
-	if (!(op & FUTEX_PRIVATE_FLAG))
-		flags |= FLAGS_SHARED;
-
-	if (op & FUTEX_CLOCK_REALTIME)
-		flags |= FLAGS_CLOCKRT;
-
-	to = futex_setup_timer(abs_time, &timeout, flags, 0);
-	while (1) {
-		ret = futex_wait_multiple_setup(qs, count, flags, &hint);
-		if (ret) {
-			if (ret > 0) {
-				/* A futex was awaken during setup */
-				ret = hint;
-			}
-			break;
-		}
-
-		if (to)
-			hrtimer_start_expires(&to->timer, HRTIMER_MODE_ABS);
-
-		/*
-		 * Avoid sleeping if another thread already tried to
-		 * wake us.
-		 */
-		for (i = 0; i < count; i++) {
-			if (plist_node_empty(&qs[i].list))
-				break;
-		}
-
-		if (i == count && (!to || to->task))
-			freezable_schedule();
-
-		ret = unqueue_multiple(qs, count);
-
-		__set_current_state(TASK_RUNNING);
-
-		if (ret >= 0)
-			break;
-		if (to && !to->task) {
-			ret = -ETIMEDOUT;
-			break;
-		} else if (signal_pending(current)) {
-			ret = -ERESTARTSYS;
-			break;
-		}
-		/*
-		 * The final case is a spurious wakeup, for
-		 * which just retry.
-		 */
-	}
-
-	if (to) {
-		hrtimer_cancel(&to->timer);
-		destroy_hrtimer_on_stack(&to->timer);
 	}
 
 	return ret;
@@ -4021,33 +3807,61 @@ futex_init_timeout(u32 cmd, u32 op, struct timespec64 *ts, ktime_t *t)
  * initialize the fields) and then, for each futex_wait_block element from
  * userspace, fill a futex_q element with proper values.
  */
-inline struct futex_q *futex_read_wait_block(u32 __user *uaddr, u32 count)
+inline struct futex_vector *futex_read_wait_block(u32 __user *uaddr, u32 count)
 {
 	unsigned int i;
-	struct futex_q *qs;
+	struct futex_vector *futexv;
 	struct futex_wait_block fwb;
 	struct futex_wait_block __user *entry =
 		(struct futex_wait_block __user *)uaddr;
 
-	if (!count || count > FUTEX_MULTIPLE_MAX_COUNT)
+	if (!count || count > FUTEX_WAITV_MAX)
 		return ERR_PTR(-EINVAL);
 
-	qs = kcalloc(count, sizeof(*qs), GFP_KERNEL);
-	if (!qs)
+	futexv = kcalloc(count, sizeof(*futexv), GFP_KERNEL);
+	if (!futexv)
 		return ERR_PTR(-ENOMEM);
 
 	for (i = 0; i < count; i++) {
 		if (copy_from_user(&fwb, &entry[i], sizeof(fwb))) {
-			kfree(qs);
+			kfree(futexv);
 			return ERR_PTR(-EFAULT);
 		}
 
-		qs[i].uaddr = fwb.uaddr;
-		qs[i].uval = fwb.val;
-		qs[i].bitset = fwb.bitset;
+		futexv[i].w.flags = FUTEX_32;
+		futexv[i].w.val = fwb.val;
+		futexv[i].w.uaddr = (uintptr_t) (fwb.uaddr);
+		futexv[i].q = futex_q_init;
 	}
 
-	return qs;
+	return futexv;
+}
+
+int futex_wait_multiple(struct futex_vector *vs, unsigned int count,
+			struct hrtimer_sleeper *to);
+
+int futex_opcode_31(ktime_t *abs_time, u32 __user *uaddr, int count)
+{
+	int ret;
+	struct futex_vector *vs;
+	struct hrtimer_sleeper *to = NULL, timeout;
+
+	to = futex_setup_timer(abs_time, &timeout, 0, 0);
+
+	vs = futex_read_wait_block(uaddr, count);
+
+	if (IS_ERR(vs))
+		return PTR_ERR(vs);
+
+	ret = futex_wait_multiple(vs, count, abs_time ? to : NULL);
+	kfree(vs);
+
+	if (to) {
+		hrtimer_cancel(&to->timer);
+		destroy_hrtimer_on_stack(&to->timer);
+	}
+
+	return ret;
 }
 
 SYSCALL_DEFINE6(futex, u32 __user *, uaddr, int, op, u32, val,
@@ -4069,24 +3883,8 @@ SYSCALL_DEFINE6(futex, u32 __user *, uaddr, int, op, u32, val,
 		tp = &t;
 	}
 
-	if (cmd == FUTEX_WAIT_MULTIPLE) {
-		int ret;
-		struct futex_q *qs;
-
-#ifdef CONFIG_X86_X32
-		if (unlikely(in_x32_syscall()))
-			return -ENOSYS;
-#endif
-		qs = futex_read_wait_block(uaddr, val);
-
-		if (IS_ERR(qs))
-			return PTR_ERR(qs);
-
-		ret = futex_wait_multiple(qs, op, val, tp);
-		kfree(qs);
-
-		return ret;
-	}
+	if (cmd == FUTEX_WAIT_MULTIPLE)
+		return futex_opcode_31(tp, uaddr, val);
 
 	return do_futex(uaddr, op, val, tp, uaddr2, (unsigned long)utime, val3);
 }
@@ -4249,59 +4047,329 @@ err_unlock:
 }
 #endif /* CONFIG_COMPAT */
 
-#ifdef CONFIG_COMPAT_32BIT_TIME
-/**
- * struct compat_futex_wait_block - Block of futexes to be waited for
- * @uaddr:	User address of the futex (compatible pointer)
- * @val:	Futex value expected by userspace
- * @bitset:	Bitset for the optional bitmasked wakeup
- */
-struct compat_futex_wait_block {
-	compat_uptr_t	uaddr;
-	__u32 pad;
-	__u32 val;
-	__u32 bitset;
-};
+/* Mask of available flags for each futex in futex_waitv list */
+#define FUTEXV_WAITER_MASK (FUTEX_32 | FUTEX_PRIVATE_FLAG)
 
 /**
- * compat_futex_read_wait_block - Read an array of futex_wait_block from
- * userspace
- * @uaddr:	Userspace address of the block
- * @count:	Number of blocks to be read
+ * futex_parse_waitv - Parse a waitv array from userspace
+ * @futexv:	Kernel side list of waiters to be filled
+ * @uwaitv:     Userspace list to be parsed
+ * @nr_futexes: Length of futexv
  *
- * This function does the same as futex_read_wait_block(), except that it
- * converts the pointer to the futex from the compat version to the regular one.
+ * Return: Error code on failure, 0 on success
  */
-inline struct futex_q *compat_futex_read_wait_block(u32 __user *uaddr,
-						    u32 count)
+static int futex_parse_waitv(struct futex_vector *futexv,
+			     struct futex_waitv __user *uwaitv,
+			     unsigned int nr_futexes)
 {
+	struct futex_waitv aux;
 	unsigned int i;
-	struct futex_q *qs;
-	struct compat_futex_wait_block fwb;
-	struct compat_futex_wait_block __user *entry =
-		(struct compat_futex_wait_block __user *)uaddr;
 
-	if (!count || count > FUTEX_MULTIPLE_MAX_COUNT)
-		return ERR_PTR(-EINVAL);
+	for (i = 0; i < nr_futexes; i++) {
+		if (copy_from_user(&aux, &uwaitv[i], sizeof(aux)))
+			return -EFAULT;
 
-	qs = kcalloc(count, sizeof(*qs), GFP_KERNEL);
-	if (!qs)
-		return ERR_PTR(-ENOMEM);
+		if ((aux.flags & ~FUTEXV_WAITER_MASK) || aux.__reserved)
+			return -EINVAL;
 
-	for (i = 0; i < count; i++) {
-		if (copy_from_user(&fwb, &entry[i], sizeof(fwb))) {
-			kfree(qs);
-			return ERR_PTR(-EFAULT);
-		}
+		if (!(aux.flags & FUTEX_32))
+			return -EINVAL;
 
-		qs[i].uaddr = compat_ptr(fwb.uaddr);
-		qs[i].uval = fwb.val;
-		qs[i].bitset = fwb.bitset;
+		futexv[i].w.flags = aux.flags;
+		futexv[i].w.val = aux.val;
+		futexv[i].w.uaddr = aux.uaddr;
+		futexv[i].q = futex_q_init;
 	}
 
-	return qs;
+	return 0;
 }
 
+/**
+ * unqueue_multiple - Remove various futexes from their hash bucket
+ * @v:	   The list of futexes to unqueue
+ * @count: Number of futexes in the list
+ *
+ * Helper to unqueue a list of futexes. This can't fail.
+ *
+ * Return:
+ *  - >=0 - Index of the last futex that was awoken;
+ *  - -1  - No futex was awoken
+ */
+static int unqueue_multiple(struct futex_vector *v, int count)
+{
+	int ret = -1, i;
+
+	for (i = 0; i < count; i++) {
+		if (!unqueue_me(&v[i].q))
+			ret = i;
+	}
+
+	return ret;
+}
+
+/**
+ * futex_wait_multiple_setup - Prepare to wait and enqueue multiple futexes
+ * @vs:		The futex list to wait on
+ * @count:	The size of the list
+ * @woken:	Index of the last woken futex, if any. Used to notify the
+ *		caller that it can return this index to userspace (return parameter)
+ *
+ * Prepare multiple futexes in a single step and enqueue them. This may fail if
+ * the futex list is invalid or if any futex was already awoken. On success the
+ * task is ready to interruptible sleep.
+ *
+ * Return:
+ *  -  1 - One of the futexes was woken by another thread
+ *  -  0 - Success
+ *  - <0 - -EFAULT, -EWOULDBLOCK or -EINVAL
+ */
+static int futex_wait_multiple_setup(struct futex_vector *vs, int count, int *woken)
+{
+	struct futex_hash_bucket *hb;
+	bool retry = false;
+	int ret, i;
+	u32 uval;
+
+	/*
+	 * Enqueuing multiple futexes is tricky, because we need to enqueue
+	 * each futex on the list before dealing with the next one to avoid
+	 * deadlocking on the hash bucket. But, before enqueuing, we need to
+	 * make sure that current->state is TASK_INTERRUPTIBLE, so we don't
+	 * lose any wake events, which cannot be done before the get_futex_key
+	 * of the next key, because it calls get_user_pages, which can sleep.
+	 * Thus, we fetch the list of futexes keys in two steps, by first
+	 * pinning all the memory keys in the futex key, and only then we read
+	 * each key and queue the corresponding futex.
+	 *
+	 * Private futexes doesn't need to recalculate hash in retry, so skip
+	 * get_futex_key() when retrying.
+	 */
+retry:
+	for (i = 0; i < count; i++) {
+		if ((vs[i].w.flags & FUTEX_PRIVATE_FLAG) && retry)
+			continue;
+
+		ret = get_futex_key(u64_to_user_ptr(vs[i].w.uaddr),
+				    !(vs[i].w.flags & FUTEX_PRIVATE_FLAG),
+				    &vs[i].q.key, FUTEX_READ);
+
+		if (unlikely(ret))
+			return ret;
+	}
+
+	set_current_state(TASK_INTERRUPTIBLE);
+
+	for (i = 0; i < count; i++) {
+		u32 __user *uaddr = (u32 __user *)(unsigned long)vs[i].w.uaddr;
+		struct futex_q *q = &vs[i].q;
+		u32 val = (u32)vs[i].w.val;
+
+		hb = queue_lock(q);
+		ret = get_futex_value_locked(&uval, uaddr);
+
+		if (!ret && uval == val) {
+			/*
+			 * The bucket lock can't be held while dealing with the
+			 * next futex. Queue each futex at this moment so hb can
+			 * be unlocked.
+			 */
+			queue_me(q, hb);
+			continue;
+		}
+
+		queue_unlock(hb);
+		__set_current_state(TASK_RUNNING);
+
+		/*
+		 * Even if something went wrong, if we find out that a futex
+		 * was woken, we don't return error and return this index to
+		 * userspace
+		 */
+		*woken = unqueue_multiple(vs, i);
+		if (*woken >= 0)
+			return 1;
+
+		if (ret) {
+			/*
+			 * If we need to handle a page fault, we need to do so
+			 * without any lock and any enqueued futex (otherwise
+			 * we could lose some wakeup). So we do it here, after
+			 * undoing all the work done so far. In success, we
+			 * retry all the work.
+			 */
+			if (get_user(uval, uaddr))
+				return -EFAULT;
+
+			retry = true;
+			goto retry;
+		}
+
+		if (uval != val)
+			return -EWOULDBLOCK;
+	}
+
+	return 0;
+}
+
+/**
+ * futex_sleep_multiple - Check sleeping conditions and sleep
+ * @vs:    List of futexes to wait for
+ * @count: Length of vs
+ * @to:    Timeout
+ *
+ * Sleep if and only if the timeout hasn't expired and no futex on the list has
+ * been woken up.
+ */
+static void futex_sleep_multiple(struct futex_vector *vs, unsigned int count,
+				 struct hrtimer_sleeper *to)
+{
+	if (to && !to->task)
+		return;
+
+	for (; count; count--, vs++) {
+		if (!READ_ONCE(vs->q.lock_ptr))
+			return;
+	}
+
+	freezable_schedule();
+}
+
+/**
+ * futex_wait_multiple - Prepare to wait on and enqueue several futexes
+ * @vs:		The list of futexes to wait on
+ * @count:	The number of objects
+ * @to:		Timeout before giving up and returning to userspace
+ *
+ * Entry point for the FUTEX_WAIT_MULTIPLE futex operation, this function
+ * sleeps on a group of futexes and returns on the first futex that is
+ * wake, or after the timeout has elapsed.
+ *
+ * Return:
+ *  - >=0 - Hint to the futex that was awoken
+ *  - <0  - On error
+ */
+int futex_wait_multiple(struct futex_vector *vs, unsigned int count,
+			struct hrtimer_sleeper *to)
+{
+	int ret, hint = 0;
+
+	if (to)
+		hrtimer_sleeper_start_expires(to, HRTIMER_MODE_ABS);
+
+	while (1) {
+		ret = futex_wait_multiple_setup(vs, count, &hint);
+		if (ret) {
+			if (ret > 0) {
+				/* A futex was woken during setup */
+				ret = hint;
+			}
+			return ret;
+		}
+
+		futex_sleep_multiple(vs, count, to);
+
+		__set_current_state(TASK_RUNNING);
+
+		ret = unqueue_multiple(vs, count);
+		if (ret >= 0)
+			return ret;
+
+		if (to && !to->task)
+			return -ETIMEDOUT;
+		else if (signal_pending(current))
+			return -ERESTARTSYS;
+		/*
+		 * The final case is a spurious wakeup, for
+		 * which just retry.
+		 */
+	}
+}
+/* Mask of available flags for each futex in futex_waitv list */
+#define FUTEXV_WAITER_MASK (FUTEX_32 | FUTEX_PRIVATE_FLAG)
+
+/**
+ * sys_futex_waitv - Wait on a list of futexes
+ * @waiters:    List of futexes to wait on
+ * @nr_futexes: Length of futexv
+ * @flags:      Flag for timeout (monotonic/realtime)
+ * @timeout:	Optional absolute timeout.
+ * @clockid:	Clock to be used for the timeout, realtime or monotonic.
+ *
+ * Given an array of `struct futex_waitv`, wait on each uaddr. The thread wakes
+ * if a futex_wake() is performed at any uaddr. The syscall returns immediately
+ * if any waiter has *uaddr != val. *timeout is an optional timeout value for
+ * the operation. Each waiter has individual flags. The `flags` argument for
+ * the syscall should be used solely for specifying the timeout as realtime, if
+ * needed. Flags for private futexes, sizes, etc. should be used on the
+ * individual flags of each waiter.
+ *
+ * Returns the array index of one of the woken futexes. No further information
+ * is provided: any number of other futexes may also have been woken by the
+ * same event, and if more than one futex was woken, the retrned index may
+ * refer to any one of them. (It is not necessaryily the futex with the
+ * smallest index, nor the one most recently woken, nor...)
+ */
+
+SYSCALL_DEFINE5(futex_waitv, struct futex_waitv __user *, waiters,
+		unsigned int, nr_futexes, unsigned int, flags,
+		struct __kernel_timespec __user *, timeout, clockid_t, clockid)
+{
+	struct hrtimer_sleeper to;
+	struct futex_vector *futexv;
+	struct timespec64 ts;
+	ktime_t time;
+	int ret;
+
+	/* This syscall supports no flags for now */
+	if (flags)
+		return -EINVAL;
+
+	if (!nr_futexes || nr_futexes > FUTEX_WAITV_MAX || !waiters)
+		return -EINVAL;
+
+	if (timeout) {
+		int flag_clkid = 0, flag_init = 0;
+
+		if (clockid == CLOCK_REALTIME) {
+			flag_clkid = FLAGS_CLOCKRT;
+			flag_init = FUTEX_CLOCK_REALTIME;
+		}
+
+		if (clockid != CLOCK_REALTIME && clockid != CLOCK_MONOTONIC)
+			return -EINVAL;
+
+		if (get_timespec64(&ts, timeout))
+			return -EFAULT;
+
+		/*
+		 * Since there's no opcode for futex_waitv, use
+		 * FUTEX_WAIT_BITSET that uses absolute timeout as well
+		 */
+		ret = futex_init_timeout(FUTEX_WAIT_BITSET, flag_init, &ts, &time);
+		if (ret)
+			return ret;
+
+		futex_setup_timer(&time, &to, flag_clkid, 0);
+	}
+
+	futexv = kcalloc(nr_futexes, sizeof(*futexv), GFP_KERNEL);
+	if (!futexv)
+		return -ENOMEM;
+
+	ret = futex_parse_waitv(futexv, waiters, nr_futexes);
+	if (!ret)
+		ret = futex_wait_multiple(futexv, nr_futexes, timeout ? &to : NULL);
+
+	if (timeout) {
+		hrtimer_cancel(&to.timer);
+		destroy_hrtimer_on_stack(&to.timer);
+	}
+
+	kfree(futexv);
+	return ret;
+}
+
+#ifdef CONFIG_COMPAT_32BIT_TIME
 SYSCALL_DEFINE6(futex_time32, u32 __user *, uaddr, int, op, u32, val,
 		const struct old_timespec32 __user *, utime, u32 __user *, uaddr2,
 		u32, val3)
@@ -4319,18 +4387,8 @@ SYSCALL_DEFINE6(futex_time32, u32 __user *, uaddr, int, op, u32, val,
 		tp = &t;
 	}
 
-	if (cmd == FUTEX_WAIT_MULTIPLE) {
-		int ret;
-		struct futex_q *qs = compat_futex_read_wait_block(uaddr, val);
-
-		if (IS_ERR(qs))
-			return PTR_ERR(qs);
-
-		ret = futex_wait_multiple(qs, op, val, tp);
-		kfree(qs);
-
-		return ret;
-	}
+	if (cmd == FUTEX_WAIT_MULTIPLE)
+		return futex_opcode_31(tp, uaddr, val);
 
 	return do_futex(uaddr, op, val, tp, uaddr2, (unsigned long)utime, val3);
 }

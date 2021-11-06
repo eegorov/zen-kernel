@@ -58,6 +58,7 @@ struct mq_attr;
 struct compat_stat;
 struct old_timeval32;
 struct robust_list_head;
+struct futex_waitv;
 struct getcpu_cache;
 struct old_linux_dirent;
 struct perf_event_attr;
@@ -71,8 +72,6 @@ struct open_how;
 struct mount_attr;
 struct landlock_ruleset_attr;
 enum landlock_rule_type;
-struct futex_waitv;
-struct futex_requeue;
 
 #include <linux/types.h>
 #include <linux/aio_abi.h>
@@ -625,19 +624,10 @@ asmlinkage long sys_get_robust_list(int pid,
 asmlinkage long sys_set_robust_list(struct robust_list_head __user *head,
 				    size_t len);
 
-/* kernel/futex2.c */
-asmlinkage long sys_futex_wait(void __user *uaddr, unsigned int val,
-			       unsigned int flags,
-			       struct __kernel_timespec __user *timo);
-asmlinkage long sys_futex_wake(void __user *uaddr, unsigned int nr_wake,
-			       unsigned int flags);
-asmlinkage long sys_futex_waitv(struct futex_waitv __user *waiters,
+asmlinkage long sys_futex_waitv(struct futex_waitv *waiters,
 				unsigned int nr_futexes, unsigned int flags,
-				struct __kernel_timespec __user *timo);
-asmlinkage long sys_futex_requeue(struct futex_requeue __user *uaddr1,
-				  struct futex_requeue __user *uaddr2,
-				  unsigned int nr_wake, unsigned int nr_requeue,
-				  unsigned int cmpval, unsigned int flags);
+				struct __kernel_timespec __user *timeout, clockid_t clockid);
+
 
 /* kernel/hrtimer.c */
 asmlinkage long sys_nanosleep(struct __kernel_timespec __user *rqtp,
@@ -1326,8 +1316,6 @@ int ksys_ipc(unsigned int call, int first, unsigned long second,
 	unsigned long third, void __user * ptr, long fifth);
 int compat_ksys_ipc(u32 call, int first, int second,
 	u32 third, u32 ptr, u32 fifth);
-long ksys_futex_wake(void __user *uaddr, unsigned long nr_wake,
-		     unsigned int flags);
 
 /*
  * The following kernel syscall equivalents are just wrappers to fs-internal
