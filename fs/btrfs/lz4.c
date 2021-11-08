@@ -125,7 +125,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	*total_in = 0;
 
 	in_page = find_get_page(mapping, start >> PAGE_SHIFT);
-	data_in = page_address(in_page);
+	data_in = kmap(in_page);
 
 	/*
 	 * store the size of all chunks of compressed data in
@@ -136,7 +136,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 		ret = -ENOMEM;
 		goto out;
 	}
-	cpage_out = page_address(out_page);
+	cpage_out = kmap(out_page);
 	out_offset = LZ4_LEN;
 	tot_out = LZ4_LEN;
 	pages[0] = out_page;
@@ -201,6 +201,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 				if (out_len == 0 && tot_in >= len)
 					break;
 
+				kunmap(out_page);
 				if (nr_pages == nr_dest_pages) {
 					out_page = NULL;
 					ret = -E2BIG;
@@ -212,7 +213,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 					ret = -ENOMEM;
 					goto out;
 				}
-				cpage_out = page_address(out_page);
+				cpage_out = kmap(out_page);
 				pages[nr_pages++] = out_page;
 
 				pg_bytes_left = PAGE_SIZE;
@@ -234,11 +235,12 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 			break;
 
 		bytes_left = len - tot_in;
+		kunmap(in_page);
 		put_page(in_page);
 
 		start += PAGE_SIZE;
 		in_page = find_get_page(mapping, start >> PAGE_SHIFT);
-		data_in = page_address(in_page);
+		data_in = kmap(in_page);
 		in_len = min(bytes_left, PAGE_SIZE);
 	}
 
@@ -248,17 +250,22 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	}
 
 	/* store the size of all chunks of compressed data */
-	sizes_ptr = page_address(pages[0]);
+	sizes_ptr = kmap_local_page(pages[0]);
 	write_compress_length(sizes_ptr, tot_out);
+	kunmap_local(sizes_ptr);
 
 	ret = 0;
 	*total_out = tot_out;
 	*total_in = tot_in;
 out:
 	*out_pages = nr_pages;
+	if (out_page)
+		kunmap(out_page);
 
-	if (in_page)
+	if (in_page) {
+		kunmap(in_page);
 		put_page(in_page);
+	}
 
 	return ret;
 }
@@ -298,6 +305,7 @@ static void copy_compressed_segment(struct compressed_bio *cb,
 	u32 orig_in = *cur_in;
 
 	while (*cur_in < orig_in + len) {
+		char *kaddr;
 		struct page *cur_page;
 		u32 copy_len = min_t(u32, PAGE_SIZE - offset_in_page(*cur_in),
 					  orig_in + len - *cur_in);
@@ -305,9 +313,11 @@ static void copy_compressed_segment(struct compressed_bio *cb,
 		ASSERT(copy_len);
 		cur_page = cb->compressed_pages[*cur_in / PAGE_SIZE];
 
+		kaddr = kmap(cur_page);
 		memcpy(dest + *cur_in - orig_in,
-			page_address(cur_page) + offset_in_page(*cur_in),
+			kaddr + offset_in_page(*cur_in),
 			copy_len);
+		kunmap(cur_page);
 
 		*cur_in += copy_len;
 	}
@@ -318,6 +328,7 @@ int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	const struct btrfs_fs_info *fs_info = btrfs_sb(cb->inode->i_sb);
 	const u32 sectorsize = fs_info->sectorsize;
+	char *kaddr;
 	int ret;
 	/* Compressed data length, can be unaligned */
 	u32 len_in;
@@ -326,7 +337,9 @@ int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 	/* Bytes decompressed so far */
 	u32 cur_out = 0;
 
-	len_in = read_compress_length(page_address(cb->compressed_pages[0]));
+	kaddr = kmap(cb->compressed_pages[0]);
+	len_in = read_compress_length(kaddr);
+	kunmap(cb->compressed_pages[0]);
 	cur_in += LZ4_LEN;
 
 	/*
@@ -359,9 +372,9 @@ int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 		ASSERT(cur_in / sectorsize ==
 		       (cur_in + LZ4_LEN - 1) / sectorsize);
 		cur_page = cb->compressed_pages[cur_in / PAGE_SIZE];
+		kaddr = kmap(cur_page);
 		ASSERT(cur_page);
-		seg_len = read_compress_length(page_address(cur_page) +
-					       offset_in_page(cur_in));
+		seg_len = read_compress_length(kaddr + offset_in_page(cur_in));
 		cur_in += LZ4_LEN;
 
 		/* Copy the compressed segment payload into workspace */
@@ -450,7 +463,7 @@ int lz4_decompress(struct list_head *ws, unsigned char *data_in,
 	destlen = min_t(unsigned long, destlen, PAGE_SIZE);
 	bytes = min_t(unsigned long, destlen, out_len - start_byte);
 
-	kaddr = page_address(dest_page);
+	kaddr = kmap_local_page(dest_page);
 	memcpy(kaddr, workspace->buf + start_byte, bytes);
 
 	/*
@@ -460,6 +473,7 @@ int lz4_decompress(struct list_head *ws, unsigned char *data_in,
 	 */
 	if (bytes < destlen)
 		memset(kaddr+bytes, 0, destlen-bytes);
+	kunmap_local(kaddr);
 out:
 	return ret;
 }
