@@ -130,7 +130,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	 * store the size of all chunks of compressed data in
 	 * the first 4 bytes
 	 */
-	out_page = alloc_page(GFP_NOFS | __GFP_HIGHMEM);
+	out_page = alloc_page(GFP_NOFS);
 	if (out_page == NULL) {
 		ret = -ENOMEM;
 		goto out;
@@ -207,7 +207,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 					goto out;
 				}
 
-				out_page = alloc_page(GFP_NOFS | __GFP_HIGHMEM);
+				out_page = alloc_page(GFP_NOFS);
 				if (out_page == NULL) {
 					ret = -ENOMEM;
 					goto out;
