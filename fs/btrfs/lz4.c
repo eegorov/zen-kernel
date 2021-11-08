@@ -15,6 +15,7 @@
 #include <linux/lz4.h>
 #include <linux/refcount.h>
 #include "compression.h"
+#include "ctree.h"
 
 #define LZ4_LEN		4
 #define LZ4_MAX_WORKBUF	LZ4_COMPRESSBOUND(PAGE_SIZE)
@@ -286,132 +287,114 @@ int lz4hc_compress_pages(struct list_head *ws,
 				out_pages, total_in, total_out, 1);
 }
 
+/*
+ * Copy the compressed segment payload into @dest.
+ *
+ * For the payload there will be no padding, just need to do page switching.
+ */
+static void copy_compressed_segment(struct compressed_bio *cb,
+                                   char *dest, u32 len, u32 *cur_in)
+{
+	u32 orig_in = *cur_in;
+
+	while (*cur_in < orig_in + len) {
+		struct page *cur_page;
+		u32 copy_len = min_t(u32, PAGE_SIZE - offset_in_page(*cur_in),
+					  orig_in + len - *cur_in);
+
+		ASSERT(copy_len);
+		cur_page = cb->compressed_pages[*cur_in / PAGE_SIZE];
+
+		memcpy(dest + *cur_in - orig_in,
+			page_address(cur_page) + offset_in_page(*cur_in),
+			copy_len);
+
+		*cur_in += copy_len;
+	}
+}
+
 int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
-	int ret = 0, ret2;
-	char *data_in;
-	unsigned long page_in_index = 0;
-	size_t srclen = cb->compressed_len;
-	unsigned long total_pages_in = DIV_ROUND_UP(srclen, PAGE_SIZE);
-	unsigned long buf_start;
-	unsigned long buf_offset = 0;
-	unsigned long bytes;
-	unsigned long working_bytes;
-	size_t in_len;
-	size_t out_len;
-	const size_t max_segment_len = LZ4_MAX_WORKBUF;
-	unsigned long in_offset;
-	unsigned long in_page_bytes_left;
-	unsigned long tot_in;
-	unsigned long tot_out;
-	unsigned long tot_len;
-	char *buf;
-	struct page **pages_in = cb->compressed_pages;
+	const struct btrfs_fs_info *fs_info = btrfs_sb(cb->inode->i_sb);
+	const u32 sectorsize = fs_info->sectorsize;
+	int ret;
+	/* Compressed data length, can be unaligned */
+	u32 len_in;
+	/* Offset inside the compressed data */
+	u32 cur_in = 0;
+	/* Bytes decompressed so far */
+	u32 cur_out = 0;
 
-	data_in = page_address(pages_in[0]);
-	tot_len = read_compress_length(data_in);
+	len_in = read_compress_length(page_address(cb->compressed_pages[0]));
+	cur_in += LZ4_LEN;
+
 	/*
-	 * Compressed data header check.
+	 * LZ4 header length check
 	 *
-	 * The real compressed size can't exceed the maximum extent length, and
-	 * all pages should be used (whole unused page with just the segment
-	 * header is not possible).  If this happens it means the compressed
-	 * extent is corrupted.
+	 * The total length should not exceed the maximum extent length,
+	 * and all sectors should be used.
+	 * If this happens, it means the compressed extent is corrupted.
 	 */
-	if (tot_len > min_t(size_t, BTRFS_MAX_COMPRESSED, srclen) ||
-	    tot_len < srclen - PAGE_SIZE) {
-		ret = -EUCLEAN;
-		goto done;
+	if (len_in > min_t(size_t, BTRFS_MAX_COMPRESSED, cb->compressed_len) ||
+	    round_up(len_in, sectorsize) < cb->compressed_len) {
+		btrfs_err(fs_info,
+			"invalid lz4 header, lz4 len %u compressed len %u",
+			len_in, cb->compressed_len);
+		return -EUCLEAN;
 	}
 
-	tot_in = LZ4_LEN;
-	in_offset = LZ4_LEN;
-	in_page_bytes_left = PAGE_SIZE - LZ4_LEN;
-
-	tot_out = 0;
-
-	while (tot_in < tot_len) {
-		in_len = read_compress_length(data_in + in_offset);
-		in_page_bytes_left -= LZ4_LEN;
-		in_offset += LZ4_LEN;
-		tot_in += LZ4_LEN;
+	/* Go through each lz4 segment */
+	while (cur_in < len_in) {
+		struct page *cur_page;
+		/* Length of the compressed segment */
+		u32 seg_len;
+		u32 sector_bytes_left;
+		size_t out_len = LZ4_MAX_WORKBUF;
 
 		/*
-		 * Segment header check.
-		 *
-		 * The segment length must not exceed the maximum LZ4
-		 * compression size, nor the total compressed size.
+		 * We should always have enough space for one segment header
+		 * inside current sector.
 		 */
-		if (in_len > max_segment_len || tot_in + in_len > tot_len) {
-			ret = -EUCLEAN;
-			goto done;
-		}
+		ASSERT(cur_in / sectorsize ==
+		       (cur_in + LZ4_LEN - 1) / sectorsize);
+		cur_page = cb->compressed_pages[cur_in / PAGE_SIZE];
+		ASSERT(cur_page);
+		seg_len = read_compress_length(page_address(cur_page) +
+					       offset_in_page(cur_in));
+		cur_in += LZ4_LEN;
 
-		tot_in += in_len;
-		working_bytes = in_len;
+		/* Copy the compressed segment payload into workspace */
+		copy_compressed_segment(cb, workspace->cbuf, seg_len, &cur_in);
 
-		/* fast path: avoid using the working buffer */
-		if (in_page_bytes_left >= in_len) {
-			buf = data_in + in_offset;
-			bytes = in_len;
-			goto cont;
-		}
-
-		/* copy bytes from the pages into the working buffer */
-		buf = workspace->cbuf;
-		buf_offset = 0;
-		while (working_bytes) {
-			bytes = min(working_bytes, in_page_bytes_left);
-
-			memcpy(buf + buf_offset, data_in + in_offset, bytes);
-			buf_offset += bytes;
-cont:
-			working_bytes -= bytes;
-			in_page_bytes_left -= bytes;
-			in_offset += bytes;
-
-			/* check if we need to pick another page */
-			if ((working_bytes == 0 && in_page_bytes_left < LZ4_LEN)
-			    || in_page_bytes_left == 0) {
-				tot_in += in_page_bytes_left;
-
-				if (working_bytes == 0 && tot_in >= tot_len)
-					break;
-
-				if (page_in_index + 1 >= total_pages_in) {
-					ret = -EIO;
-					goto done;
-				}
-
-				page_in_index++;
-				data_in = page_address(pages_in[page_in_index]);
-
-				in_page_bytes_left = PAGE_SIZE;
-				in_offset = 0;
-			}
-		}
-
-		out_len = max_segment_len;
-		ret = LZ4_decompress_safe(buf, workspace->buf, in_len,
-				out_len);
+		/* Decompress the data */
+		ret = LZ4_decompress_safe(workspace->cbuf, workspace->buf, seg_len,
+                               out_len);
 		out_len = ret;
 		if (ret < 0) {
-			pr_warn("BTRFS: lz4 decompress bio failed\n");
+			btrfs_err(fs_info, "lz4 failed to decompress");
 			ret = -EIO;
-			break;
+			goto out;
 		}
+
+		/* Copy the data into inode pages */
+		ret = btrfs_decompress_buf2page(workspace->buf, out_len, cb, cur_out);
+		cur_out += out_len;
+
+		/* All data read, exit */
+		if (ret == 0)
+			goto out;
 		ret = 0;
 
-		buf_start = tot_out;
-		tot_out += out_len;
+		/* Check if the sector has enough space for a segment header */
+		sector_bytes_left = sectorsize - (cur_in % sectorsize);
+		if (sector_bytes_left >= LZ4_LEN)
+			continue;
 
-		ret2 = btrfs_decompress_buf2page(workspace->buf, out_len,
-						 cb, buf_start);
-		if (ret2 == 0)
-			break;
+		/* Skip the padding zeros */
+		cur_in += sector_bytes_left;
 	}
-done:
+out:
 	if (!ret)
 		zero_fill_bio(cb->orig_bio);
 	return ret;
