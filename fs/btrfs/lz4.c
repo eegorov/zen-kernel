@@ -124,7 +124,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	*total_in = 0;
 
 	in_page = find_get_page(mapping, start >> PAGE_SHIFT);
-	data_in = kmap(in_page);
+	data_in = page_address(in_page);
 
 	/*
 	 * store the size of all chunks of compressed data in
@@ -135,7 +135,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 		ret = -ENOMEM;
 		goto out;
 	}
-	cpage_out = kmap(out_page);
+	cpage_out = page_address(out_page);
 	out_offset = LZ4_LEN;
 	tot_out = LZ4_LEN;
 	pages[0] = out_page;
@@ -200,7 +200,6 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 				if (out_len == 0 && tot_in >= len)
 					break;
 
-				kunmap(out_page);
 				if (nr_pages == nr_dest_pages) {
 					out_page = NULL;
 					ret = -E2BIG;
@@ -212,7 +211,7 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 					ret = -ENOMEM;
 					goto out;
 				}
-				cpage_out = kmap(out_page);
+				cpage_out = page_address(out_page);
 				pages[nr_pages++] = out_page;
 
 				pg_bytes_left = PAGE_SIZE;
@@ -234,12 +233,11 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 			break;
 
 		bytes_left = len - tot_in;
-		kunmap(in_page);
 		put_page(in_page);
 
 		start += PAGE_SIZE;
 		in_page = find_get_page(mapping, start >> PAGE_SHIFT);
-		data_in = kmap(in_page);
+		data_in = page_address(in_page);
 		in_len = min(bytes_left, PAGE_SIZE);
 	}
 
@@ -249,22 +247,17 @@ static int lz4_compress_pages_generic(struct list_head *ws,
 	}
 
 	/* store the size of all chunks of compressed data */
-	sizes_ptr = kmap_local_page(pages[0]);
+	sizes_ptr = page_address(pages[0]);
 	write_compress_length(sizes_ptr, tot_out);
-	kunmap_local(sizes_ptr);
 
 	ret = 0;
 	*total_out = tot_out;
 	*total_in = tot_in;
 out:
 	*out_pages = nr_pages;
-	if (out_page)
-		kunmap(out_page);
 
-	if (in_page) {
-		kunmap(in_page);
+	if (in_page)
 		put_page(in_page);
-	}
 
 	return ret;
 }
@@ -314,12 +307,11 @@ int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 	unsigned long tot_out;
 	unsigned long tot_len;
 	char *buf;
-	bool may_late_unmap, need_unmap;
 	struct page **pages_in = cb->compressed_pages;
 	u64 disk_start = cb->start;
 	struct bio *orig_bio = cb->orig_bio;
 
-	data_in = kmap(pages_in[0]);
+	data_in = page_address(pages_in[0]);
 	tot_len = read_compress_length(data_in);
 	/*
 	 * Compressed data header check.
@@ -360,13 +352,11 @@ int lz4_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 
 		tot_in += in_len;
 		working_bytes = in_len;
-		may_late_unmap = need_unmap = false;
 
 		/* fast path: avoid using the working buffer */
 		if (in_page_bytes_left >= in_len) {
 			buf = data_in + in_offset;
 			bytes = in_len;
-			may_late_unmap = true;
 			goto cont;
 		}
 
@@ -396,12 +386,8 @@ cont:
 					goto done;
 				}
 
-				if (may_late_unmap)
-					need_unmap = true;
-				else
-					kunmap(pages_in[page_in_index]);
-
-				data_in = kmap(pages_in[++page_in_index]);
+				page_in_index++;
+				data_in = page_address(pages_in[page_in_index]);
 
 				in_page_bytes_left = PAGE_SIZE;
 				in_offset = 0;
@@ -412,8 +398,6 @@ cont:
 		ret = LZ4_decompress_safe(buf, workspace->buf, in_len,
 				out_len);
 		out_len = ret;
-		if (need_unmap)
-			kunmap(pages_in[page_in_index - 1]);
 		if (ret < 0) {
 			pr_warn("BTRFS: lz4 decompress bio failed\n");
 			ret = -EIO;
@@ -430,7 +414,6 @@ cont:
 			break;
 	}
 done:
-	kunmap(pages_in[page_in_index]);
 	if (!ret)
 		zero_fill_bio(orig_bio);
 	return ret;
@@ -486,7 +469,7 @@ int lz4_decompress(struct list_head *ws, unsigned char *data_in,
 	destlen = min_t(unsigned long, destlen, PAGE_SIZE);
 	bytes = min_t(unsigned long, destlen, out_len - start_byte);
 
-	kaddr = kmap_local_page(dest_page);
+	kaddr = page_address(dest_page);
 	memcpy(kaddr, workspace->buf + start_byte, bytes);
 
 	/*
@@ -496,7 +479,6 @@ int lz4_decompress(struct list_head *ws, unsigned char *data_in,
 	 */
 	if (bytes < destlen)
 		memset(kaddr+bytes, 0, destlen-bytes);
-	kunmap_local(kaddr);
 out:
 	return ret;
 }
