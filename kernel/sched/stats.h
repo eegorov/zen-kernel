@@ -94,6 +94,7 @@ struct sched_entity_stats {
 } __no_randomize_layout;
 #endif
 
+#ifndef CONFIG_SCHED_ALT
 static inline struct sched_statistics *
 __schedstats_from_se(struct sched_entity *se)
 {
@@ -103,6 +104,7 @@ __schedstats_from_se(struct sched_entity *se)
 #endif
 	return &task_of(se)->stats;
 }
+#endif
 
 #ifdef CONFIG_PSI
 /*
@@ -117,6 +119,9 @@ static inline void psi_enqueue(struct task_struct *p, bool wakeup)
 
 	if (static_branch_likely(&psi_disabled))
 		return;
+
+	if (p->in_memstall)
+		set |= TSK_MEMSTALL_RUNNING;
 
 	if (!wakeup || p->sched_psi_wake_requeue) {
 		if (p->in_memstall)
@@ -148,7 +153,7 @@ static inline void psi_dequeue(struct task_struct *p, bool sleep)
 		return;
 
 	if (p->in_memstall)
-		clear |= TSK_MEMSTALL;
+		clear |= (TSK_MEMSTALL | TSK_MEMSTALL_RUNNING);
 
 	psi_task_change(p, clear, 0);
 }
