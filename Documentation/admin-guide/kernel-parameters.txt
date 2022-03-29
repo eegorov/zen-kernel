@@ -1999,6 +1999,9 @@
 			disable
 			  Do not enable intel_pstate as the default
 			  scaling driver for the supported processors
+			enable
+			  Enable intel_pstate in-case "disable" was passed
+			  previously in the kernel boot parameters
 			passive
 			  Use intel_pstate as a scaling driver, but configure it
 			  to work with generic cpufreq governors (instead of
@@ -3938,6 +3941,15 @@
 		nomsi		[MSI] If the PCI_MSI kernel config parameter is
 				enabled, this kernel boot option can be used to
 				disable the use of MSI interrupts system-wide.
+		pcie_acs_override =
+					[PCIE] Override missing PCIe ACS support for:
+				downstream
+					All downstream ports - full ACS capabilities
+				multfunction
+					All multifunction devices - multifunction ACS subset
+				id:nnnn:nnnn
+					Specfic device - full ACS capabilities
+					Specified as vid:did (vendor/device ID) in hex
 		noioapicquirk	[APIC] Disable all boot interrupt quirks.
 				Safety option to keep boot IRQs enabled. This
 				should never be necessary.
@@ -4356,6 +4368,12 @@
 			fully seed the kernel's CRNG. Default is controlled
 			by CONFIG_RANDOM_TRUST_CPU.
 
+	random.trust_bootloader={on,off}
+			[KNL] Enable or disable trusting the use of the
+			a seed passed by the bootloader (if available) to
+			fully seed the kernel's CRNG. Default is controlled
+			by CONFIG_RANDOM_TRUST_BOOTLOADER.
+
 	randomize_kstack_offset=
 			[KNL] Enable or disable kernel stack offset
 			randomization, which provides roughly 5 bits of
@@ -4504,6 +4522,8 @@
 			(the least-favored priority).  Otherwise, when
 			RCU_BOOST is not set, valid values are 0-99 and
 			the default is zero (non-realtime operation).
+			When RCU_NOCB_CPU is set, also adjust the
+			priority of NOCB callback kthreads.
 
 	rcutree.rcu_nocb_gp_stride= [KNL]
 			Set the number of NOCB callback kthreads in

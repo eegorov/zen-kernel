@@ -74,7 +74,9 @@ __read_mostly int sysctl_resched_latency_warn_once = 1;
  * Number of tasks to iterate in a single balance run.
  * Limited because this is done with IRQs disabled.
  */
-#ifdef CONFIG_PREEMPT_RT
+#ifdef CONFIG_ZEN_INTERACTIVE
+const_debug unsigned int sysctl_sched_nr_migrate = 64;
+#elif defined(CONFIG_PREEMPT_RT)
 const_debug unsigned int sysctl_sched_nr_migrate = 8;
 #else
 const_debug unsigned int sysctl_sched_nr_migrate = 32;
@@ -4979,6 +4981,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		 * finish_task_switch()'s mmdrop().
 		 */
 		switch_mm_irqs_off(prev->active_mm, next->mm, next);
+		lru_gen_use_mm(next->mm);
 
 		if (!prev->mm) {                        // from kernel
 			/* will mmdrop() in finish_task_switch(). */
