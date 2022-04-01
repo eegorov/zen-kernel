@@ -28,7 +28,6 @@
 #include <linux/kprobes.h>
 #include <linux/mmu_context.h>
 #include <linux/nmi.h>
-#include <linux/profile.h>
 #include <linux/rcupdate_wait.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
@@ -67,7 +66,7 @@ __read_mostly int sysctl_resched_latency_warn_once = 1;
 #define sched_feat(x)	(0)
 #endif /* CONFIG_SCHED_DEBUG */
 
-#define ALT_SCHED_VERSION "v5.15-r1"
+#define ALT_SCHED_VERSION "v5.16-r1"
 
 /* rt_prio(prio) defined in include/linux/sched/rt.h */
 #define rt_task(p)		rt_prio((p)->prio)
@@ -790,6 +789,25 @@ bool sched_task_on_rq(struct task_struct *p)
 	return task_on_rq_queued(p);
 }
 
+unsigned long get_wchan(struct task_struct *p)
+{
+	unsigned long ip = 0;
+	unsigned int state;
+
+	if (!p || p == current)
+		return 0;
+
+	/* Only get wchan if task is blocked and we can keep it that way. */
+	raw_spin_lock_irq(&p->pi_lock);
+	state = READ_ONCE(p->__state);
+	smp_rmb(); /* see try_to_wake_up() */
+	if (state != TASK_RUNNING && state != TASK_WAKING && !p->on_rq)
+		ip = __get_wchan(p);
+	raw_spin_unlock_irq(&p->pi_lock);
+
+	return ip;
+}
+
 /*
  * Add/Remove/Requeue task to/from the runqueue routines
  * Context: rq->lock
@@ -829,25 +847,6 @@ static inline void dequeue_task(struct task_struct *p, struct rq *rq, int flags)
 #endif
 
 	sched_update_tick_dependency(rq);
-}
-
-unsigned long get_wchan(struct task_struct *p)
-{
-	unsigned long ip = 0;
-	unsigned int state;
-
-	if (!p || p == current)
-		return 0;
-
-	/* Only get wchan if task is blocked and we can keep it that way. */
-	raw_spin_lock_irq(&p->pi_lock);
-	state = READ_ONCE(p->__state);
-	smp_rmb(); /* see try_to_wake_up() */
-	if (state != TASK_RUNNING && state != TASK_WAKING && !p->on_rq)
-		ip = __get_wchan(p);
-	raw_spin_unlock_irq(&p->pi_lock);
-
-	return ip;
 }
 
 static inline void enqueue_task(struct task_struct *p, struct rq *rq, int flags)
@@ -1417,6 +1416,7 @@ static inline void __set_task_cpu(struct task_struct *p, unsigned int cpu)
 	 * per-task data have been completed by this moment.
 	 */
 	smp_wmb();
+
 	WRITE_ONCE(task_thread_info(p)->cpu, cpu);
 #endif
 }
@@ -1991,7 +1991,7 @@ static inline int select_task_rq(struct task_struct *p)
 #endif
 	    sched_rq_watermark_and(&tmp, &chk_mask, 0, false) ||
 	    sched_rq_watermark_and(&tmp, &chk_mask,
-			SCHED_BITS - task_sched_prio(p), false))
+			SCHED_BITS - task_sched_prio(p) - 1, false))
 		return best_mask_cpu(task_cpu(p), &tmp);
 
 	return best_mask_cpu(task_cpu(p), &chk_mask);
@@ -2334,9 +2334,10 @@ ttwu_stat(struct task_struct *p, int cpu, int wake_flags)
 	rq = this_rq();
 
 #ifdef CONFIG_SMP
-	if (cpu == rq->cpu)
+	if (cpu == rq->cpu) {
 		__schedstat_inc(rq->ttwu_local);
-	else {
+		__schedstat_inc(p->stats.nr_wakeups_local);
+	} else {
 		/** Alt schedule FW ToDo:
 		 * How to do ttwu_wake_remote
 		 */
@@ -2344,6 +2345,7 @@ ttwu_stat(struct task_struct *p, int cpu, int wake_flags)
 #endif /* CONFIG_SMP */
 
 	__schedstat_inc(rq->ttwu_count);
+	__schedstat_inc(p->stats.nr_wakeups);
 }
 
 /*
@@ -2534,7 +2536,7 @@ void wake_up_if_idle(int cpu)
 	raw_spin_lock_irqsave(&rq->lock, flags);
 	if (is_idle_task(rq->curr))
 		resched_curr(rq);
-	/* Else CPU is not idle, do nothing here: */
+	/* Else CPU is not idle, do nothing here */
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 
 out:
@@ -2954,9 +2956,9 @@ int task_call_func(struct task_struct *p, task_call_f func, void *arg)
 
 	/*
 	 * At this point the task is pinned; either:
-	 *  - blocked and we're holding off wakeups	 (pi->lock)
-	 *  - woken, and we're holding off enqueue	 (rq->lock)
-	 *  - queued, and we're holding off schedule	 (rq->lock)
+	 *  - blocked and we're holding off wakeups      (pi->lock)
+	 *  - woken, and we're holding off enqueue       (rq->lock)
+	 *  - queued, and we're holding off schedule     (rq->lock)
 	 *  - running, and we're holding off de-schedule (rq->lock)
 	 *
 	 * The called function (@func) can use: task_curr(), p->on_rq and
@@ -3006,6 +3008,11 @@ static inline void __sched_fork(unsigned long clone_flags, struct task_struct *p
 	p->utime			= 0;
 	p->stime			= 0;
 	p->sched_time			= 0;
+
+#ifdef CONFIG_SCHEDSTATS
+	/* Even if schedstat is disabled, there should not be garbage */
+	memset(&p->stats, 0, sizeof(p->stats));
+#endif
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	INIT_HLIST_HEAD(&p->preempt_notifiers);
@@ -3075,11 +3082,8 @@ void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs)
 	struct rq *rq;
 
 	/*
-	 * The child is not yet in the pid-hash so no cgroup attach races,
-	 * and the cgroup is pinned to this child due to cgroup_fork()
-	 * is ran before sched_fork().
-	 *
-	 * Silence PROVE_RCU.
+	 * Because we're not yet on the pid-hash, p->pi_lock isn't strictly
+	 * required yet, but lockdep gets upset if rules are violated.
 	 */
 	raw_spin_lock_irqsave(&p->pi_lock, flags);
 	/*
@@ -3114,9 +3118,6 @@ void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs)
 
 void sched_post_fork(struct task_struct *p)
 {
-#ifdef CONFIG_UCLAMP_TASK
-       uclamp_post_fork(p);
-#endif
 }
 
 #ifdef CONFIG_SCHEDSTATS
@@ -6299,9 +6300,7 @@ int __cond_resched_lock(spinlock_t *lock)
 
 	if (spin_needbreak(lock) || resched) {
 		spin_unlock(lock);
-		if (resched)
-			preempt_schedule_common();
-		else
+		if (!_cond_resched())
 			cpu_relax();
 		ret = 1;
 		spin_lock(lock);
@@ -6319,9 +6318,7 @@ int __cond_resched_rwlock_read(rwlock_t *lock)
 
 	if (rwlock_needbreak(lock) || resched) {
 		read_unlock(lock);
-		if (resched)
-			preempt_schedule_common();
-		else
+		if (!_cond_resched())
 			cpu_relax();
 		ret = 1;
 		read_lock(lock);
@@ -6339,9 +6336,7 @@ int __cond_resched_rwlock_write(rwlock_t *lock)
 
 	if (rwlock_needbreak(lock) || resched) {
 		write_unlock(lock);
-		if (resched)
-			preempt_schedule_common();
-		else
+		if (!_cond_resched())
 			cpu_relax();
 		ret = 1;
 		write_lock(lock);
@@ -7366,12 +7361,6 @@ void __init sched_init(void)
 }
 
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
-static inline int preempt_count_equals(int preempt_offset)
-{
-	int nested = preempt_count() + rcu_preempt_depth();
-
-	return (nested == preempt_offset);
-}
 
 void __might_sleep(const char *file, int line)
 {
@@ -7391,7 +7380,28 @@ void __might_sleep(const char *file, int line)
 }
 EXPORT_SYMBOL(__might_sleep);
 
-void __might_resched(const char *file, int line, int preempt_offset)
+static void print_preempt_disable_ip(int preempt_offset, unsigned long ip)
+{
+	if (!IS_ENABLED(CONFIG_DEBUG_PREEMPT))
+		return;
+
+	if (preempt_count() == preempt_offset)
+		return;
+
+	pr_err("Preemption disabled at:");
+	print_ip_sym(KERN_ERR, ip);
+}
+
+static inline bool resched_offsets_ok(unsigned int offsets)
+{
+	unsigned int nested = preempt_count();
+
+	nested += rcu_preempt_depth() << MIGHT_RESCHED_RCU_SHIFT;
+
+	return nested == offsets;
+}
+
+void __might_resched(const char *file, int line, unsigned int offsets)
 {
 	/* Ratelimiting timestamp: */
 	static unsigned long prev_jiffy;
@@ -7401,7 +7411,7 @@ void __might_resched(const char *file, int line, int preempt_offset)
 	/* WARN_ON_ONCE() by default, no rate limit required: */
 	rcu_sleep_check();
 
-	if ((preempt_count_equals(preempt_offset) && !irqs_disabled() &&
+	if ((resched_offsets_ok(offsets) && !irqs_disabled() &&
 	     !is_idle_task(current) && !current->non_block_count) ||
 	    system_state == SYSTEM_BOOTING || system_state > SYSTEM_RUNNING ||
 	    oops_in_progress)
@@ -7418,6 +7428,13 @@ void __might_resched(const char *file, int line, int preempt_offset)
 	pr_err("in_atomic(): %d, irqs_disabled(): %d, non_block: %d, pid: %d, name: %s\n",
 	       in_atomic(), irqs_disabled(), current->non_block_count,
 	       current->pid, current->comm);
+	pr_err("preempt_count: %x, expected: %x\n", preempt_count(),
+	       offsets & MIGHT_RESCHED_PREEMPT_MASK);
+
+	if (IS_ENABLED(CONFIG_PREEMPT_RCU)) {
+		pr_err("RCU nest depth: %d, expected: %u\n",
+		       rcu_preempt_depth(), offsets >> MIGHT_RESCHED_RCU_SHIFT);
+	}
 
 	if (task_stack_end_corrupted(current))
 		pr_emerg("Thread overran stack, or stack corrupted\n");
@@ -7425,12 +7442,10 @@ void __might_resched(const char *file, int line, int preempt_offset)
 	debug_show_held_locks(current);
 	if (irqs_disabled())
 		print_irqtrace_events(current);
-#ifdef CONFIG_DEBUG_PREEMPT
-	if (!preempt_count_equals(preempt_offset)) {
-		pr_err("Preemption disabled at:");
-		print_ip_sym(KERN_ERR, preempt_disable_ip);
-	}
-#endif
+
+	print_preempt_disable_ip(offsets & MIGHT_RESCHED_PREEMPT_MASK,
+				 preempt_disable_ip);
+
 	dump_stack();
 	add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
 }
@@ -7517,6 +7532,10 @@ void normalize_rt_tasks(void)
 		if (p->flags & PF_KTHREAD)
 			continue;
 
+		schedstat_set(p->stats.wait_start,  0);
+		schedstat_set(p->stats.sleep_start, 0);
+		schedstat_set(p->stats.block_start, 0);
+
 		if (!rt_task(p)) {
 			/*
 			 * Renice negative nice level userspace
@@ -7588,9 +7607,9 @@ static void sched_free_group(struct task_group *tg)
 	kmem_cache_free(task_group_cache, tg);
 }
 
-static void sched_free_group_rcu(struct rcu_head *rcu)
+static void sched_free_group_rcu(struct rcu_head *rhp)
 {
-	sched_free_group(container_of(rcu, struct task_group, rcu));
+	sched_free_group(container_of(rhp, struct task_group, rcu));
 }
 
 static void sched_unregister_group(struct task_group *tg)
@@ -7621,13 +7640,13 @@ void sched_online_group(struct task_group *tg, struct task_group *parent)
 /* rcu callback to free various structures associated with a task group */
 static void sched_unregister_group_rcu(struct rcu_head *rhp)
 {
-	/* Now it should be safe to free those cfs_rqs */
+	/* Now it should be safe to free those cfs_rqs: */
 	sched_unregister_group(container_of(rhp, struct task_group, rcu));
 }
 
 void sched_destroy_group(struct task_group *tg)
 {
-	/* Wait for possible concurrent references to cfs_rqs complete */
+	/* Wait for possible concurrent references to cfs_rqs complete: */
 	call_rcu(&tg->rcu, sched_unregister_group_rcu);
 }
 
