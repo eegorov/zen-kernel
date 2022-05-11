@@ -2612,11 +2612,10 @@ static int io_do_iopoll(struct io_ring_ctx *ctx, bool force_nonspin)
 		/* order with io_complete_rw_iopoll(), e.g. ->result updates */
 		if (!smp_load_acquire(&req->iopoll_completed))
 			break;
+		nr_events++;
 		if (unlikely(req->flags & REQ_F_CQE_SKIP))
 			continue;
-
 		__io_fill_cqe(ctx, req->user_data, req->result, io_put_kbuf(req));
-		nr_events++;
 	}
 
 	if (unlikely(!nr_events))
@@ -3585,6 +3584,7 @@ static int io_rw_init_file(struct io_kiocb *req, fmode_t mode)
 		if (!(kiocb->ki_flags & IOCB_DIRECT) || !file->f_op->iopoll)
 			return -EOPNOTSUPP;
 
+		kiocb->private = NULL;
 		kiocb->ki_flags |= IOCB_HIPRI | IOCB_ALLOC_CACHE;
 		kiocb->ki_complete = io_complete_rw_iopoll;
 		req->iopoll_completed = 0;
@@ -3622,8 +3622,10 @@ static int io_read(struct io_kiocb *req, unsigned int issue_flags)
 		iovec = NULL;
 	}
 	ret = io_rw_init_file(req, FMODE_READ);
-	if (unlikely(ret))
+	if (unlikely(ret)) {
+		kfree(iovec);
 		return ret;
+	}
 	req->result = iov_iter_count(&s->iter);
 
 	if (force_nonblock) {
@@ -3742,8 +3744,10 @@ static int io_write(struct io_kiocb *req, unsigned int issue_flags)
 		iovec = NULL;
 	}
 	ret = io_rw_init_file(req, FMODE_WRITE);
-	if (unlikely(ret))
+	if (unlikely(ret)) {
+		kfree(iovec);
 		return ret;
+	}
 	req->result = iov_iter_count(&s->iter);
 
 	if (force_nonblock) {
@@ -4887,6 +4891,8 @@ static int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
 		return -EINVAL;
+	if (unlikely(sqe->addr2 || sqe->file_index))
+		return -EINVAL;
 
 	sr->umsg = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	sr->len = READ_ONCE(sqe->len);
@@ -5097,6 +5103,8 @@ static int io_recvmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	struct io_sr_msg *sr = &req->sr_msg;
 
 	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
+		return -EINVAL;
+	if (unlikely(sqe->addr2 || sqe->file_index))
 		return -EINVAL;
 
 	sr->umsg = u64_to_user_ptr(READ_ONCE(sqe->addr));
