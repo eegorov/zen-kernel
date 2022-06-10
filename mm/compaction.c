@@ -1736,7 +1736,7 @@ typedef enum {
  * Allow userspace to control policy on scanning the unevictable LRU for
  * compactable pages.
  */
-#ifdef CONFIG_PREEMPT_RT
+#if defined(CONFIG_PREEMPT_RT) || defined(CONFIG_ZEN_INTERACTIVE)
 int sysctl_compact_unevictable_allowed __read_mostly = 0;
 #else
 int sysctl_compact_unevictable_allowed __read_mostly = 1;
@@ -1858,6 +1858,8 @@ static unsigned long fast_find_migrateblock(struct compact_control *cc)
 
 				update_fast_start_pfn(cc, free_pfn);
 				pfn = pageblock_start_pfn(free_pfn);
+				if (pfn < cc->zone->zone_start_pfn)
+					pfn = cc->zone->zone_start_pfn;
 				cc->fast_search_fail = 0;
 				found_block = true;
 				set_pageblock_skip(freepage);
@@ -2739,7 +2741,11 @@ static void compact_nodes(void)
  * aggressively the kernel should compact memory in the
  * background. It takes values in the range [0, 100].
  */
+#ifdef CONFIG_ZEN_INTERACTIVE
+unsigned int __read_mostly sysctl_compaction_proactiveness;
+#else
 unsigned int __read_mostly sysctl_compaction_proactiveness = 20;
+#endif
 
 int compaction_proactiveness_sysctl_handler(struct ctl_table *table, int write,
 		void *buffer, size_t *length, loff_t *ppos)
