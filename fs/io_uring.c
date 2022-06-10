@@ -747,6 +747,8 @@ enum {
 	REQ_F_ARM_LTIMEOUT_BIT,
 	REQ_F_ASYNC_DATA_BIT,
 	REQ_F_SKIP_LINK_CQES_BIT,
+	REQ_F_SINGLE_POLL_BIT,
+	REQ_F_DOUBLE_POLL_BIT,
 	/* keep async read/write and isreg together and in order */
 	REQ_F_SUPPORT_NOWAIT_BIT,
 	REQ_F_ISREG_BIT,
@@ -805,6 +807,10 @@ enum {
 	REQ_F_ASYNC_DATA	= BIT(REQ_F_ASYNC_DATA_BIT),
 	/* don't post CQEs while failing linked requests */
 	REQ_F_SKIP_LINK_CQES	= BIT(REQ_F_SKIP_LINK_CQES_BIT),
+	/* single poll may be active */
+	REQ_F_SINGLE_POLL	= BIT(REQ_F_SINGLE_POLL_BIT),
+	/* double poll may active */
+	REQ_F_DOUBLE_POLL	= BIT(REQ_F_DOUBLE_POLL_BIT),
 };
 
 struct async_poll {
@@ -5525,8 +5531,12 @@ static inline void io_poll_remove_entry(struct io_poll_iocb *poll)
 
 static void io_poll_remove_entries(struct io_kiocb *req)
 {
-	struct io_poll_iocb *poll = io_poll_get_single(req);
-	struct io_poll_iocb *poll_double = io_poll_get_double(req);
+	/*
+	 * Nothing to do if neither of those flags are set. Avoid dipping
+	 * into the poll/apoll/double cachelines if we can.
+	 */
+	if (!(req->flags & (REQ_F_SINGLE_POLL | REQ_F_DOUBLE_POLL)))
+		return;
 
 	/*
 	 * While we hold the waitqueue lock and the waitqueue is nonempty,
@@ -5544,9 +5554,10 @@ static void io_poll_remove_entries(struct io_kiocb *req)
 	 * In that case, only RCU prevents the queue memory from being freed.
 	 */
 	rcu_read_lock();
-	io_poll_remove_entry(poll);
-	if (poll_double)
-		io_poll_remove_entry(poll_double);
+	if (req->flags & REQ_F_SINGLE_POLL)
+		io_poll_remove_entry(io_poll_get_single(req));
+	if (req->flags & REQ_F_DOUBLE_POLL)
+		io_poll_remove_entry(io_poll_get_double(req));
 	rcu_read_unlock();
 }
 
@@ -5682,10 +5693,14 @@ static void io_poll_cancel_req(struct io_kiocb *req)
 	io_poll_execute(req, 0);
 }
 
+#define wqe_to_req(wait)	((void *)((unsigned long) (wait)->private & ~1))
+#define wqe_is_double(wait)	((unsigned long) (wait)->private & 1)
+#define IO_ASYNC_POLL_COMMON	(EPOLLONESHOT | POLLPRI)
+
 static int io_poll_wake(struct wait_queue_entry *wait, unsigned mode, int sync,
 			void *key)
 {
-	struct io_kiocb *req = wait->private;
+	struct io_kiocb *req = wqe_to_req(wait);
 	struct io_poll_iocb *poll = container_of(wait, struct io_poll_iocb,
 						 wait);
 	__poll_t mask = key_to_poll(key);
@@ -5715,7 +5730,7 @@ static int io_poll_wake(struct wait_queue_entry *wait, unsigned mode, int sync,
 	}
 
 	/* for instances that support it check for an event match first */
-	if (mask && !(mask & poll->events))
+	if (mask && !(mask & (poll->events & ~IO_ASYNC_POLL_COMMON)))
 		return 0;
 
 	if (io_poll_get_ownership(req)) {
@@ -5723,6 +5738,10 @@ static int io_poll_wake(struct wait_queue_entry *wait, unsigned mode, int sync,
 		if (mask && poll->events & EPOLLONESHOT) {
 			list_del_init(&poll->wait.entry);
 			poll->head = NULL;
+			if (wqe_is_double(wait))
+				req->flags &= ~REQ_F_DOUBLE_POLL;
+			else
+				req->flags &= ~REQ_F_SINGLE_POLL;
 		}
 		__io_poll_execute(req, mask);
 	}
@@ -5734,6 +5753,7 @@ static void __io_queue_proc(struct io_poll_iocb *poll, struct io_poll_table *pt,
 			    struct io_poll_iocb **poll_ptr)
 {
 	struct io_kiocb *req = pt->req;
+	unsigned long wqe_private = (unsigned long) req;
 
 	/*
 	 * The file being polled uses multiple waitqueues for poll handling
@@ -5759,15 +5779,19 @@ static void __io_queue_proc(struct io_poll_iocb *poll, struct io_poll_table *pt,
 			pt->error = -ENOMEM;
 			return;
 		}
+		/* mark as double wq entry */
+		wqe_private |= 1;
+		req->flags |= REQ_F_DOUBLE_POLL;
 		io_init_poll_iocb(poll, first->events, first->wait.func);
 		*poll_ptr = poll;
 		if (req->opcode == IORING_OP_POLL_ADD)
 			req->flags |= REQ_F_ASYNC_DATA;
 	}
 
+	req->flags |= REQ_F_SINGLE_POLL;
 	pt->nr_entries++;
 	poll->head = head;
-	poll->wait.private = req;
+	poll->wait.private = (void *) wqe_private;
 
 	if (poll->events & EPOLLEXCLUSIVE)
 		add_wait_queue_exclusive(head, &poll->wait);
@@ -5794,7 +5818,6 @@ static int __io_arm_poll_handler(struct io_kiocb *req,
 	INIT_HLIST_NODE(&req->hash_node);
 	io_init_poll_iocb(poll, mask, io_poll_wake);
 	poll->file = req->file;
-	poll->wait.private = req;
 
 	ipt->pt._key = mask;
 	ipt->req = req;
@@ -5863,7 +5886,7 @@ static int io_arm_poll_handler(struct io_kiocb *req)
 	struct io_ring_ctx *ctx = req->ctx;
 	struct async_poll *apoll;
 	struct io_poll_table ipt;
-	__poll_t mask = EPOLLONESHOT | POLLERR | POLLPRI;
+	__poll_t mask = IO_ASYNC_POLL_COMMON | POLLERR;
 	int ret;
 
 	if (!def->pollin && !def->pollout)
@@ -7005,6 +7028,8 @@ fail:
 		 * wait for request slots on the block side.
 		 */
 		if (!needs_poll) {
+			if (!(req->ctx->flags & IORING_SETUP_IOPOLL))
+				break;
 			cond_resched();
 			continue;
 		}
