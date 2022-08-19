@@ -1929,7 +1929,7 @@ static int console_trylock_spinning(void)
  * text and length. If @dropped_text is non-NULL and any records have been
  * dropped, a dropped message will be written out first.
  */
-static void call_console_driver(struct console *con, const char *text, size_t len,
+static void call_console_driver(int level, struct console *con, const char *text, size_t len,
 				char *dropped_text)
 {
 	size_t dropped_len;
@@ -1939,10 +1939,10 @@ static void call_console_driver(struct console *con, const char *text, size_t le
 				       "** %lu printk messages dropped **\n",
 				       con->dropped);
 		con->dropped = 0;
-		con->write(con, dropped_text, dropped_len);
+		con->write(con, dropped_text, dropped_len, level);
 	}
 
-	con->write(con, text, len);
+	con->write(con, text, len, level);
 }
 
 /*
@@ -2325,7 +2325,7 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 				  struct dev_printk_info *dev_info) { return 0; }
 static void console_lock_spinning_enable(void) { }
 static int console_lock_spinning_disable_and_check(void) { return 0; }
-static void call_console_driver(struct console *con, const char *text, size_t len,
+static void call_console_driver(int level, struct console *con, const char *text, size_t len,
 				char *dropped_text)
 {
 }
@@ -2350,7 +2350,7 @@ asmlinkage __visible void early_printk(const char *fmt, ...)
 	n = vscnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	early_console->write(early_console, buf, n);
+	early_console->write(early_console, buf, n, 0);
 }
 #endif
 
@@ -2729,7 +2729,7 @@ static bool console_emit_next_record(struct console *con, char *text, char *ext_
 	console_lock_spinning_enable();
 
 	stop_critical_timings();	/* don't trace print latency */
-	call_console_driver(con, write_text, len, dropped_text);
+	call_console_driver(r.info->level, con, write_text, len, dropped_text);
 	start_critical_timings();
 
 	con->seq++;
