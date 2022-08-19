@@ -193,6 +193,9 @@ enum io_uring_op {
 	IORING_OP_SOCKET,
 	IORING_OP_URING_CMD,
 
+	/* Additional getdents support missing from upstream */
+	IORING_OP_GETDENTS,
+
 	/* this goes last, obviously */
 	IORING_OP_LAST,
 };
