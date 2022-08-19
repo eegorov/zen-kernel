@@ -97,7 +97,7 @@
 /* only define max */
 #define IORING_MAX_FIXED_FILES	(1U << 20)
 #define IORING_MAX_RESTRICTIONS	(IORING_RESTRICTION_LAST + \
-				 IORING_REGISTER_LAST + IORING_OP_LAST)
+				 IORING_REGISTER_LAST + IORING_OP_EXTRA_LAST)
 
 #define IO_RSRC_TAG_TABLE_SHIFT	(PAGE_SHIFT - 3)
 #define IO_RSRC_TAG_TABLE_MAX	(1U << IO_RSRC_TAG_TABLE_SHIFT)
@@ -312,7 +312,7 @@ struct io_buffer {
 
 struct io_restriction {
 	DECLARE_BITMAP(register_op, IORING_REGISTER_LAST);
-	DECLARE_BITMAP(sqe_op, IORING_OP_LAST);
+	DECLARE_BITMAP(sqe_op, IORING_OP_EXTRA_LAST);
 	u8 sqe_flags_allowed;
 	u8 sqe_flags_required;
 	bool registered;
@@ -761,6 +761,13 @@ struct io_mkdir {
 	struct filename			*filename;
 };
 
+struct io_getdents {
+	struct file			*file;
+	struct linux_dirent64 __user	*dirent;
+	unsigned int			count;
+	loff_t				pos;
+};
+
 struct io_symlink {
 	struct file			*file;
 	int				new_dfd;
@@ -985,6 +992,7 @@ struct io_kiocb {
 		struct io_rename	rename;
 		struct io_unlink	unlink;
 		struct io_mkdir		mkdir;
+		struct io_getdents	getdents;
 		struct io_symlink	symlink;
 		struct io_hardlink	hardlink;
 		struct io_msg		msg;
@@ -1238,6 +1246,8 @@ const char *io_uring_get_opcode(u8 opcode)
 		return "UNLINKAT";
 	case IORING_OP_MKDIRAT:
 		return "MKDIRAT";
+	case IORING_OP_GETDENTS:
+		return "GETDENTS";
 	case IORING_OP_SYMLINKAT:
 		return "SYMLINKAT";
 	case IORING_OP_LINKAT:
@@ -1257,6 +1267,7 @@ const char *io_uring_get_opcode(u8 opcode)
 	case IORING_OP_URING_CMD:
 		return "URING_CMD";
 	case IORING_OP_LAST:
+	default:
 		return "INVALID";
 	}
 	return "INVALID";
@@ -5804,6 +5815,55 @@ static int io_sync_file_range(struct io_kiocb *req, unsigned int issue_flags)
 	io_req_complete(req, ret);
 	return 0;
 }
+static int io_getdents_prep(struct io_kiocb *req,
+				const struct io_uring_sqe *sqe)
+{
+	struct io_getdents *getdents = &req->getdents;
+
+	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
+		return -EINVAL;
+	if (sqe->ioprio || sqe->rw_flags || sqe->buf_index)
+		return -EINVAL;
+
+	getdents->pos = READ_ONCE(sqe->off);
+	getdents->dirent = u64_to_user_ptr(READ_ONCE(sqe->addr));
+	getdents->count = READ_ONCE(sqe->len);
+	return 0;
+}
+
+static int io_getdents(struct io_kiocb *req, unsigned int issue_flags)
+{
+	struct io_getdents *getdents = &req->getdents;
+	int ret = 0;
+
+	/* getdents always requires a blocking context */
+	if (issue_flags & IO_URING_F_NONBLOCK)
+		return -EAGAIN;
+
+	/* for vfs_llseek and to serialize ->iterate_shared() on this file */
+	mutex_lock(&req->file->f_pos_lock);
+
+	if (getdents->pos != -1 && getdents->pos != req->file->f_pos) {
+		loff_t res = vfs_llseek(req->file, getdents->pos, SEEK_SET);
+		if (res < 0)
+			ret = res;
+	}
+
+	if (ret == 0) {
+		ret = vfs_getdents(req->file, getdents->dirent,
+					getdents->count);
+       }
+
+	mutex_unlock(&req->file->f_pos_lock);
+
+	if (ret < 0) {
+		if (ret == -ERESTARTSYS)
+			ret = -EINTR;
+		req_set_fail(req);
+	}
+	io_req_complete(req, ret);
+	return 0;
+}
 
 #if defined(CONFIG_NET)
 static int io_shutdown_prep(struct io_kiocb *req,
@@ -8396,7 +8456,7 @@ static int io_init_req(struct io_ring_ctx *ctx, struct io_kiocb *req,
 	req->rsrc_node = NULL;
 	req->task = current;
 
-	if (unlikely(opcode >= IORING_OP_LAST)) {
+	if (unlikely(opcode >= IORING_OP_LAST && opcode <= IORING_OP_EXTRA_BEGIN && opcode >= IORING_OP_EXTRA_LAST)) {
 		req->opcode = 0;
 		return -EINVAL;
 	}
@@ -12178,9 +12238,9 @@ static __cold int io_probe(struct io_ring_ctx *ctx, void __user *arg,
 	if (memchr_inv(p, 0, size))
 		goto out;
 
-	p->last_op = IORING_OP_LAST - 1;
-	if (nr_args > IORING_OP_LAST)
-		nr_args = IORING_OP_LAST;
+	p->last_op = IORING_OP_EXTRA_LAST - 1;
+	if (nr_args > IORING_OP_EXTRA_LAST)
+		nr_args = IORING_OP_EXTRA_LAST;
 
 	for (i = 0; i < nr_args; i++) {
 		p->ops[i].op = i;
@@ -12254,7 +12314,7 @@ static __cold int io_register_restrictions(struct io_ring_ctx *ctx,
 				  ctx->restrictions.register_op);
 			break;
 		case IORING_RESTRICTION_SQE_OP:
-			if (res[i].sqe_op >= IORING_OP_LAST) {
+			if (res[i].sqe_op >= IORING_OP_LAST && !(res[i].sqe_op > IORING_OP_EXTRA_BEGIN && res[i].sqe_op < IORING_OP_EXTRA_LAST) ) {
 				ret = -EINVAL;
 				goto out;
 			}
@@ -13060,6 +13120,11 @@ static const struct io_op_def io_op_defs[] = {
 		.prep			= io_mkdirat_prep,
 		.issue			= io_mkdirat,
 	},
+	[IORING_OP_GETDENTS] = {
+		.needs_file		= 1,
+		.prep			= io_getdents_prep,
+		.issue			= io_getdents,
+	},
 	[IORING_OP_SYMLINKAT] = {
 		.prep			= io_symlinkat_prep,
 		.issue			= io_symlinkat,
@@ -13168,7 +13233,7 @@ static int __init io_uring_init(void)
 	BUILD_BUG_ON(SQE_COMMON_FLAGS >= (1 << 8));
 	BUILD_BUG_ON((SQE_VALID_FLAGS | SQE_COMMON_FLAGS) != SQE_VALID_FLAGS);
 
-	BUILD_BUG_ON(ARRAY_SIZE(io_op_defs) != IORING_OP_LAST);
+	BUILD_BUG_ON(ARRAY_SIZE(io_op_defs) != IORING_OP_EXTRA_LAST);
 	BUILD_BUG_ON(__REQ_F_LAST_BIT > 8 * sizeof(int));
 
 	BUILD_BUG_ON(sizeof(atomic_t) != sizeof(u32));
