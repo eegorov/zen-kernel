@@ -141,6 +141,9 @@ enum {
 	IORING_OP_SYMLINKAT,
 	IORING_OP_LINKAT,
 
+	/* Additional getdents support missing from upstream */
+	IORING_OP_GETDENTS,
+
 	/* this goes last, obviously */
 	IORING_OP_LAST,
 };
