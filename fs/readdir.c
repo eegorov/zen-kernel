@@ -351,9 +351,10 @@ efault:
 	return -EFAULT;
 }
 
-int vfs_getdents(struct file *file, struct linux_dirent64 __user *dirent,
-		 unsigned int count)
+SYSCALL_DEFINE3(getdents64, unsigned int, fd,
+		struct linux_dirent64 __user *, dirent, unsigned int, count)
 {
+	struct fd f;
 	struct getdents_callback64 buf = {
 		.ctx.actor = filldir64,
 		.count = count,
@@ -361,7 +362,11 @@ int vfs_getdents(struct file *file, struct linux_dirent64 __user *dirent,
 	};
 	int error;
 
-	error = iterate_dir(file, &buf.ctx);
+	f = fdget_pos(fd);
+	if (!f.file)
+		return -EBADF;
+
+	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;
 	if (buf.prev_reclen) {
@@ -374,20 +379,6 @@ int vfs_getdents(struct file *file, struct linux_dirent64 __user *dirent,
 		else
 			error = count - buf.count;
 	}
-	return error;
-}
-
-SYSCALL_DEFINE3(getdents64, unsigned int, fd,
-		struct linux_dirent64 __user *, dirent, unsigned int, count)
-{
-	struct fd f;
-	int error;
-
-	f = fdget_pos(fd);
-	if (!f.file)
-		return -EBADF;
-
-	error = vfs_getdents(f.file, dirent, count);
 	fdput_pos(f);
 	return error;
 }

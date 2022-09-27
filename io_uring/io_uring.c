@@ -761,13 +761,6 @@ struct io_mkdir {
 	struct filename			*filename;
 };
 
-struct io_getdents {
-	struct file			*file;
-	struct linux_dirent64 __user	*dirent;
-	unsigned int			count;
-	loff_t				pos;
-};
-
 struct io_symlink {
 	struct file			*file;
 	int				new_dfd;
@@ -992,7 +985,6 @@ struct io_kiocb {
 		struct io_rename	rename;
 		struct io_unlink	unlink;
 		struct io_mkdir		mkdir;
-		struct io_getdents	getdents;
 		struct io_symlink	symlink;
 		struct io_hardlink	hardlink;
 		struct io_msg		msg;
@@ -1246,8 +1238,6 @@ const char *io_uring_get_opcode(u8 opcode)
 		return "UNLINKAT";
 	case IORING_OP_MKDIRAT:
 		return "MKDIRAT";
-	case IORING_OP_GETDENTS:
-		return "GETDENTS";
 	case IORING_OP_SYMLINKAT:
 		return "SYMLINKAT";
 	case IORING_OP_LINKAT:
@@ -5805,55 +5795,6 @@ static int io_sync_file_range(struct io_kiocb *req, unsigned int issue_flags)
 
 	ret = sync_file_range(req->file, req->sync.off, req->sync.len,
 				req->sync.flags);
-	io_req_complete(req, ret);
-	return 0;
-}
-static int io_getdents_prep(struct io_kiocb *req,
-				const struct io_uring_sqe *sqe)
-{
-	struct io_getdents *getdents = &req->getdents;
-
-	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
-		return -EINVAL;
-	if (sqe->ioprio || sqe->rw_flags || sqe->buf_index)
-		return -EINVAL;
-
-	getdents->pos = READ_ONCE(sqe->off);
-	getdents->dirent = u64_to_user_ptr(READ_ONCE(sqe->addr));
-	getdents->count = READ_ONCE(sqe->len);
-	return 0;
-}
-
-static int io_getdents(struct io_kiocb *req, unsigned int issue_flags)
-{
-	struct io_getdents *getdents = &req->getdents;
-	int ret = 0;
-
-	/* getdents always requires a blocking context */
-	if (issue_flags & IO_URING_F_NONBLOCK)
-		return -EAGAIN;
-
-	/* for vfs_llseek and to serialize ->iterate_shared() on this file */
-	mutex_lock(&req->file->f_pos_lock);
-
-	if (getdents->pos != -1 && getdents->pos != req->file->f_pos) {
-		loff_t res = vfs_llseek(req->file, getdents->pos, SEEK_SET);
-		if (res < 0)
-			ret = res;
-	}
-
-	if (ret == 0) {
-		ret = vfs_getdents(req->file, getdents->dirent,
-					getdents->count);
-       }
-
-	mutex_unlock(&req->file->f_pos_lock);
-
-	if (ret < 0) {
-		if (ret == -ERESTARTSYS)
-			ret = -EINTR;
-		req_set_fail(req);
-	}
 	io_req_complete(req, ret);
 	return 0;
 }
@@ -13107,11 +13048,6 @@ static const struct io_op_def io_op_defs[] = {
 	[IORING_OP_MKDIRAT] = {
 		.prep			= io_mkdirat_prep,
 		.issue			= io_mkdirat,
-	},
-	[IORING_OP_GETDENTS] = {
-		.needs_file		= 1,
-		.prep			= io_getdents_prep,
-		.issue			= io_getdents,
 	},
 	[IORING_OP_SYMLINKAT] = {
 		.prep			= io_symlinkat_prep,
