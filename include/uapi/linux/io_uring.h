@@ -207,6 +207,9 @@ enum io_uring_op {
 	IORING_OP_URING_CMD,
 	IORING_OP_SEND_ZC,
 
+	/* Additional getdents support missing from upstream */
+	IORING_OP_GETDENTS,
+
 	/* this goes last, obviously */
 	IORING_OP_LAST,
 };
