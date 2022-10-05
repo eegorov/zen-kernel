@@ -406,6 +406,12 @@ const struct io_op_def io_op_defs[] = {
 		.issue			= io_mkdirat,
 		.cleanup		= io_mkdirat_cleanup,
 	},
+	[IORING_OP_GETDENTS] = {
+		.name			= "GETDENTS",
+		.needs_file		= 1,
+		.prep			= io_getdents_prep,
+		.issue			= io_getdents,
+	},
 	[IORING_OP_SYMLINKAT] = {
 		.name			= "SYMLINKAT",
 		.prep			= io_symlinkat_prep,
