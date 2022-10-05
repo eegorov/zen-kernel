@@ -366,7 +366,7 @@ static void folio_activate_drain(int cpu)
 		folio_batch_move_lru(fbatch, folio_activate_fn);
 }
 
-static void folio_activate(struct folio *folio)
+void folio_activate(struct folio *folio)
 {
 	if (folio_test_lru(folio) && !folio_test_active(folio) &&
 	    !folio_test_unevictable(folio)) {
@@ -385,7 +385,7 @@ static inline void folio_activate_drain(int cpu)
 {
 }
 
-static void folio_activate(struct folio *folio)
+void folio_activate(struct folio *folio)
 {
 	struct lruvec *lruvec;
 
@@ -428,6 +428,40 @@ static void __lru_cache_activate_folio(struct folio *folio)
 	local_unlock(&cpu_fbatches.lock);
 }
 
+#ifdef CONFIG_LRU_GEN
+static void folio_inc_refs(struct folio *folio)
+{
+	unsigned long new_flags, old_flags = READ_ONCE(folio->flags);
+
+	if (folio_test_unevictable(folio))
+		return;
+
+	if (!folio_test_referenced(folio)) {
+		folio_set_referenced(folio);
+		return;
+	}
+
+	if (!folio_test_workingset(folio)) {
+		folio_set_workingset(folio);
+		return;
+	}
+
+	/* see the comment on MAX_NR_TIERS */
+	do {
+		new_flags = old_flags & LRU_REFS_MASK;
+		if (new_flags == LRU_REFS_MASK)
+			break;
+
+		new_flags += BIT(LRU_REFS_PGOFF);
+		new_flags |= old_flags & ~LRU_REFS_MASK;
+	} while (!try_cmpxchg(&folio->flags, &old_flags, new_flags));
+}
+#else
+static void folio_inc_refs(struct folio *folio)
+{
+}
+#endif /* CONFIG_LRU_GEN */
+
 /*
  * Mark a page as having seen activity.
  *
@@ -440,6 +474,11 @@ static void __lru_cache_activate_folio(struct folio *folio)
  */
 void folio_mark_accessed(struct folio *folio)
 {
+	if (lru_gen_enabled()) {
+		folio_inc_refs(folio);
+		return;
+	}
+
 	if (!folio_test_referenced(folio)) {
 		folio_set_referenced(folio);
 	} else if (folio_test_unevictable(folio)) {
@@ -483,6 +522,11 @@ void folio_add_lru(struct folio *folio)
 	VM_BUG_ON_FOLIO(folio_test_active(folio) &&
 			folio_test_unevictable(folio), folio);
 	VM_BUG_ON_FOLIO(folio_test_lru(folio), folio);
+
+	/* see the comment in lru_gen_add_folio() */
+	if (lru_gen_enabled() && !folio_test_unevictable(folio) &&
+	    lru_gen_in_fault() && !(current->flags & PF_MEMALLOC))
+		folio_set_active(folio);
 
 	folio_get(folio);
 	local_lock(&cpu_fbatches.lock);
@@ -575,7 +619,7 @@ static void lru_deactivate_file_fn(struct lruvec *lruvec, struct folio *folio)
 
 static void lru_deactivate_fn(struct lruvec *lruvec, struct folio *folio)
 {
-	if (folio_test_active(folio) && !folio_test_unevictable(folio)) {
+	if (!folio_test_unevictable(folio) && (folio_test_active(folio) || lru_gen_enabled())) {
 		long nr_pages = folio_nr_pages(folio);
 
 		lruvec_del_folio(lruvec, folio);
@@ -688,8 +732,8 @@ void deactivate_page(struct page *page)
 {
 	struct folio *folio = page_folio(page);
 
-	if (folio_test_lru(folio) && folio_test_active(folio) &&
-	    !folio_test_unevictable(folio)) {
+	if (folio_test_lru(folio) && !folio_test_unevictable(folio) &&
+	    (folio_test_active(folio) || lru_gen_enabled())) {
 		struct folio_batch *fbatch;
 
 		folio_get(folio);
@@ -1070,6 +1114,10 @@ EXPORT_SYMBOL(pagevec_lookup_range_tag);
  */
 void __init swap_setup(void)
 {
+#ifdef CONFIG_ZEN_INTERACTIVE
+	/* Only swap-in pages requested, avoid readahead */
+	page_cluster = 0;
+#else
 	unsigned long megs = totalram_pages() >> (20 - PAGE_SHIFT);
 
 	/* Use a smaller cluster for small-memory machines */
@@ -1081,4 +1129,5 @@ void __init swap_setup(void)
 	 * Right now other parts of the system means that we
 	 * _really_ don't want to cluster much more
 	 */
+#endif
 }
