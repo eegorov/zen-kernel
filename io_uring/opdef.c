@@ -421,6 +421,12 @@ const struct io_op_def io_op_defs[] = {
 		.issue			= io_mkdirat,
 		.cleanup		= io_mkdirat_cleanup,
 	},
+	[IORING_OP_GETDENTS] = {
+		.name			= "GETDENTS",
+		.needs_file		= 1,
+		.prep			= io_getdents_prep,
+		.issue			= io_getdents,
+	},
 	[IORING_OP_SYMLINKAT] = {
 		.name			= "SYMLINKAT",
 		.prep			= io_symlinkat_prep,
@@ -527,7 +533,7 @@ const struct io_op_def io_op_defs[] = {
 
 const char *io_uring_get_opcode(u8 opcode)
 {
-	if (opcode < IORING_OP_LAST)
+	if (opcode < IORING_OP_LAST || (opcode >  IORING_OP_EXTRA_BEGIN && opcode < IORING_OP_EXTRA_LAST))
 		return io_op_defs[opcode].name;
 	return "INVALID";
 }
@@ -536,9 +542,11 @@ void __init io_uring_optable_init(void)
 {
 	int i;
 
-	BUILD_BUG_ON(ARRAY_SIZE(io_op_defs) != IORING_OP_LAST);
+	BUILD_BUG_ON(ARRAY_SIZE(io_op_defs) != IORING_OP_EXTRA_LAST);
 
 	for (i = 0; i < ARRAY_SIZE(io_op_defs); i++) {
+		if (i >= IORING_OP_LAST && i <= IORING_OP_EXTRA_BEGIN)
+			continue;
 		BUG_ON(!io_op_defs[i].prep);
 		if (io_op_defs[i].prep != io_eopnotsupp_prep)
 			BUG_ON(!io_op_defs[i].issue);
