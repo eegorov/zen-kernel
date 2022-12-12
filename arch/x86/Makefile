@@ -163,6 +163,7 @@ else
         cflags-$(CONFIG_MZEN) 		+= -march=znver1
         cflags-$(CONFIG_MZEN2) 	+= -march=znver2
         cflags-$(CONFIG_MZEN3) 	+= -march=znver3
+        cflags-$(CONFIG_MZEN4) 	+= -march=znver4
         cflags-$(CONFIG_MNATIVE_INTEL) += -march=native
         cflags-$(CONFIG_MNATIVE_AMD) 	+= -march=native
         cflags-$(CONFIG_MATOM) 	+= -march=bonnell
@@ -186,6 +187,8 @@ else
         cflags-$(CONFIG_MSAPPHIRERAPIDS) += -march=sapphirerapids
         cflags-$(CONFIG_MROCKETLAKE) 	+= -march=rocketlake
         cflags-$(CONFIG_MALDERLAKE) 	+= -march=alderlake
+        cflags-$(CONFIG_MRAPTORLAKE) 	+= -march=raptorlake
+        cflags-$(CONFIG_MMETEORLAKE) 	+= -march=meteorlake
         cflags-$(CONFIG_GENERIC_CPU2) 	+= -march=x86-64-v2
         cflags-$(CONFIG_GENERIC_CPU3) 	+= -march=x86-64-v3
         cflags-$(CONFIG_GENERIC_CPU4) 	+= -march=x86-64-v4
