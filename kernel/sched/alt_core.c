@@ -67,7 +67,7 @@ __read_mostly int sysctl_resched_latency_warn_once = 1;
 #define sched_feat(x)	(0)
 #endif /* CONFIG_SCHED_DEBUG */
 
-#define ALT_SCHED_VERSION "v6.1-r3"
+#define ALT_SCHED_VERSION "v6.1-r4"
 
 /* rt_prio(prio) defined in include/linux/sched/rt.h */
 #define rt_task(p)		rt_prio((p)->prio)
@@ -770,7 +770,7 @@ unsigned long get_wchan(struct task_struct *p)
 
 #define __SCHED_ENQUEUE_TASK(p, rq, flags)				\
 	sched_info_enqueue(rq, p);					\
-	psi_enqueue(p, flags);						\
+	psi_enqueue(p, flags & ENQUEUE_WAKEUP);				\
 									\
 	p->sq_idx = task_sched_prio_idx(p, rq);				\
 	list_add_tail(&p->sq_node, &rq->queue.heads[p->sq_idx]);	\
@@ -4034,7 +4034,9 @@ void scheduler_tick(void)
 	struct rq *rq = cpu_rq(cpu);
 	u64 resched_latency;
 
-	arch_scale_freq_tick();
+	if (housekeeping_cpu(cpu, HK_TYPE_TICK))
+		arch_scale_freq_tick();
+
 	sched_clock_tick();
 
 	raw_spin_lock(&rq->lock);
@@ -4133,7 +4135,7 @@ static inline void sg_balance(struct rq *rq)
 		int i;
 
 		for_each_cpu_wrap(i, &chk, cpu) {
-			if (cpumask_subset(cpu_smt_mask(i), &chk) &&
+			if (!cpumask_intersects(cpu_smt_mask(i), sched_idle_mask) &&\
 			    sg_balance_trigger(i))
 				return;
 		}
@@ -4256,6 +4258,7 @@ static void sched_tick_start(int cpu)
 static void sched_tick_stop(int cpu)
 {
 	struct tick_work *twork;
+	int os;
 
 	if (housekeeping_cpu(cpu, HK_TYPE_TICK))
 		return;
@@ -4263,7 +4266,10 @@ static void sched_tick_stop(int cpu)
 	WARN_ON_ONCE(!tick_work_cpu);
 
 	twork = per_cpu_ptr(tick_work_cpu, cpu);
-	cancel_delayed_work_sync(&twork->work);
+	/* There cannot be competing actions, but don't rely on stop-machine. */
+	os = atomic_xchg(&twork->state, TICK_SCHED_REMOTE_OFFLINING);
+	WARN_ON_ONCE(os != TICK_SCHED_REMOTE_RUNNING);
+	/* Don't cancel, as this would mess up the state machine. */
 }
 #endif /* CONFIG_HOTPLUG_CPU */
 
@@ -4387,8 +4393,7 @@ static noinline void __schedule_bug(struct task_struct *prev)
 		pr_err("Preemption disabled at:");
 		print_ip_sym(KERN_ERR, preempt_disable_ip);
 	}
-	if (panic_on_warn)
-		panic("scheduling while atomic\n");
+	check_panic_on_warn("scheduling while atomic");
 
 	dump_stack();
 	add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
@@ -4704,7 +4709,7 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 			prev->sched_contributes_to_load =
 				(prev_state & TASK_UNINTERRUPTIBLE) &&
 				!(prev_state & TASK_NOLOAD) &&
-				!(prev->flags & TASK_FROZEN);
+				!(prev_state & TASK_FROZEN);
 
 			if (prev->sched_contributes_to_load)
 				rq->nr_uninterruptible++;
