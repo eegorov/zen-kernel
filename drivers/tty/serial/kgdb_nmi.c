@@ -55,7 +55,7 @@ static int kgdb_nmi_console_setup(struct console *co, char *options)
 	return 0;
 }
 
-static void kgdb_nmi_console_write(struct console *co, const char *s, uint c)
+static void kgdb_nmi_console_write(struct console *co, const char *s, uint c, unsigned int color)
 {
 	int i;
 

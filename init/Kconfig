@@ -123,6 +123,45 @@ config THREAD_INFO_IN_TASK
 
 menu "General setup"
 
+config ZEN_INTERACTIVE
+	bool "Tune kernel for interactivity"
+	default y
+	help
+	  Tunes the kernel for responsiveness at the cost of throughput and power usage.
+
+	  --- Block Layer ----------------------------------------
+
+	    Default scheduler for SQ..: mq-deadline -> bfq
+	    Default scheduler for MQ..:        none -> kyber
+	    DM-Crypt Workqueues.......:          on -> off
+
+	  --- Virtual Memory Subsystem ---------------------------
+
+	    Background-reclaim hugepages...:   no   ->   yes
+	    MG-LRU minimum cache TTL.......:   0    ->   1000 ms
+	    Compact Unevictable............:   1    ->   0
+	    Proactive Compaction...........:  20    ->   0
+	    Swap-in readahead..............:   3    ->   0
+
+	  --- CFS CPU Scheduler ----------------------------------
+
+	    Scheduling latency.............:   6    ->   4    ms
+	    Minimal granularity............:   0.75 ->   0.4  ms
+	    Wakeup granularity.............:   1    ->   0.5  ms
+	    Bandwidth slice size...........:   5    ->   3    ms
+	    Task rebalancing threshold.....:  32    ->  64
+
+	  --- PDS/BMQ CPU Scheduler ------------------------------
+
+	    Scheduling timeslice...........:   4    ->   2    ms
+	    Yield type.....................:   1    ->   0
+
+	  --- CPUFreq Settings -----------------------------------
+
+	    Ondemand sampling down factor..:   1    ->   5
+	    Ondemand default up threshold..:  80    ->  55
+	    Ondemand micro up threshold....:  95    ->  60
+
 config BROKEN
 	bool
 
@@ -819,6 +858,7 @@ menu "Scheduler features"
 config UCLAMP_TASK
 	bool "Enable utilization clamping for RT/FAIR tasks"
 	depends on CPU_FREQ_GOV_SCHEDUTIL
+	depends on !SCHED_ALT
 	help
 	  This feature enables the scheduler to track the clamped utilization
 	  of each CPU based on RUNNABLE tasks scheduled on that CPU.
@@ -865,6 +905,35 @@ config UCLAMP_BUCKETS_COUNT
 
 	  If in doubt, use the default value.
 
+menuconfig SCHED_ALT
+	bool "Alternative CPU Schedulers"
+	default n
+	help
+	  This feature enables the ProjectC alternative CPU schedulers."
+
+if SCHED_ALT
+
+choice
+	prompt "Alternative CPU schedulers"
+	default SCHED_PDS
+
+config SCHED_BMQ
+	bool "BMQ CPU scheduler"
+	help
+	  The BitMap Queue CPU scheduler for excellent interactivity and
+	  responsiveness on the desktop and solid scalability on normal
+	  hardware and commodity servers.
+
+config SCHED_PDS
+	bool "PDS CPU scheduler"
+	help
+	  The Priority and Deadline based Skip list multiple queue CPU
+	  Scheduler.
+
+endchoice
+
+endif
+
 endmenu
 
 #
@@ -892,13 +961,17 @@ config CC_IMPLICIT_FALLTHROUGH
 	default "-Wimplicit-fallthrough=5" if CC_IS_GCC && $(cc-option,-Wimplicit-fallthrough=5)
 	default "-Wimplicit-fallthrough" if CC_IS_CLANG && $(cc-option,-Wunreachable-code-fallthrough)
 
-# Currently, disable gcc-12 array-bounds globally.
+# Currently, disable gcc-11,12 array-bounds globally.
 # We may want to target only particular configurations some day.
+config GCC11_NO_ARRAY_BOUNDS
+	def_bool y
+
 config GCC12_NO_ARRAY_BOUNDS
 	def_bool y
 
 config CC_NO_ARRAY_BOUNDS
 	bool
+	default y if CC_IS_GCC && GCC_VERSION >= 110000 && GCC_VERSION < 120000 && GCC11_NO_ARRAY_BOUNDS
 	default y if CC_IS_GCC && GCC_VERSION >= 120000 && GCC_VERSION < 130000 && GCC12_NO_ARRAY_BOUNDS
 
 #
@@ -918,6 +991,7 @@ config NUMA_BALANCING
 	depends on ARCH_SUPPORTS_NUMA_BALANCING
 	depends on !ARCH_WANT_NUMA_VARIABLE_LOCALITY
 	depends on SMP && NUMA && MIGRATION && !PREEMPT_RT
+	depends on !SCHED_ALT
 	help
 	  This option adds support for automatic NUMA aware memory/task placement.
 	  The mechanism is quite primitive and is based on migrating memory when
@@ -1015,6 +1089,7 @@ config FAIR_GROUP_SCHED
 	depends on CGROUP_SCHED
 	default CGROUP_SCHED
 
+if !SCHED_ALT
 config CFS_BANDWIDTH
 	bool "CPU bandwidth provisioning for FAIR_GROUP_SCHED"
 	depends on FAIR_GROUP_SCHED
@@ -1037,6 +1112,7 @@ config RT_GROUP_SCHED
 	  realtime bandwidth for them.
 	  See Documentation/scheduler/sched-rt-group.rst for more information.
 
+endif #!SCHED_ALT
 endif #CGROUP_SCHED
 
 config UCLAMP_TASK_GROUP
@@ -1247,6 +1323,22 @@ config USER_NS
 
 	  If unsure, say N.
 
+config USER_NS_UNPRIVILEGED
+	bool "Allow unprivileged users to create namespaces"
+	default y
+	depends on USER_NS
+	help
+	  When disabled, unprivileged users will not be able to create
+	  new namespaces. Allowing users to create their own namespaces
+	  has been part of several recent local privilege escalation
+	  exploits, so if you need user namespaces but are
+	  paranoid^Wsecurity-conscious you want to disable this.
+
+	  This setting can be overridden at runtime via the
+	  kernel.unprivileged_userns_clone sysctl.
+
+	  If unsure, say Y.
+
 config PID_NS
 	bool "PID Namespaces"
 	default y
@@ -1281,6 +1373,7 @@ config CHECKPOINT_RESTORE
 
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
+	depends on !SCHED_ALT
 	select CGROUPS
 	select CGROUP_SCHED
 	select FAIR_GROUP_SCHED
@@ -1413,6 +1506,12 @@ config CC_OPTIMIZE_FOR_PERFORMANCE
 	  This is the default optimization level for the kernel, building
 	  with the "-O2" compiler flag for best performance and most
 	  helpful compile-time warnings.
+
+config CC_OPTIMIZE_FOR_PERFORMANCE_O3
+	bool "Optimize more for performance (-O3)"
+	help
+	  Choosing this option will pass "-O3" to your compiler to optimize
+	  the kernel yet more for performance.
 
 config CC_OPTIMIZE_FOR_SIZE
 	bool "Optimize for size (-Os)"

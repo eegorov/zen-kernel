@@ -149,8 +149,8 @@ struct console_atomic_data {
 
 struct console {
 	char	name[16];
-	void	(*write)(struct console *, const char *, unsigned);
-	void	(*write_atomic)(struct console *, const char *, unsigned);
+	void	(*write)(struct console *, const char *, unsigned, unsigned int);
+	void	(*write_atomic)(struct console *, const char *, unsigned, unsigned int);
 	int	(*read)(struct console *, char *, unsigned);
 	struct tty_driver *(*device)(struct console *, int *);
 	void	(*unblank)(void);

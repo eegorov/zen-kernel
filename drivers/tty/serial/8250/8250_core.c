@@ -595,11 +595,11 @@ static void univ8250_console_write_atomic(struct console *co, const char *s,
 }
 
 static void univ8250_console_write(struct console *co, const char *s,
-				   unsigned int count)
+				   unsigned int count, unsigned int loglevel)
 {
 	struct uart_8250_port *up = &serial8250_ports[co->index];
 
-	serial8250_console_write(up, s, count);
+	serial8250_console_write(up, s, count, loglevel);
 }
 
 static int univ8250_console_setup(struct console *co, char *options)

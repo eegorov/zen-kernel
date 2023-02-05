@@ -84,6 +84,7 @@ enum board_ids {
 static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent);
 static void ahci_remove_one(struct pci_dev *dev);
 static void ahci_shutdown_one(struct pci_dev *dev);
+static void ahci_intel_pcs_quirk(struct pci_dev *pdev, struct ahci_host_priv *hpriv);
 static int ahci_vt8251_hardreset(struct ata_link *link, unsigned int *class,
 				 unsigned long deadline);
 static int ahci_avn_hardreset(struct ata_link *link, unsigned int *class,
@@ -677,6 +678,25 @@ static void ahci_pci_save_initial_config(struct pci_dev *pdev,
 	ahci_save_initial_config(&pdev->dev, hpriv);
 }
 
+static int ahci_pci_reset_controller(struct ata_host *host)
+{
+	struct pci_dev *pdev = to_pci_dev(host->dev);
+	struct ahci_host_priv *hpriv = host->private_data;
+	int rc;
+
+	rc = ahci_reset_controller(host);
+	if (rc)
+		return rc;
+
+	/*
+	 * If platform firmware failed to enable ports, try to enable
+	 * them here.
+	 */
+	ahci_intel_pcs_quirk(pdev, hpriv);
+
+	return 0;
+}
+
 static void ahci_pci_init_controller(struct ata_host *host)
 {
 	struct ahci_host_priv *hpriv = host->private_data;
@@ -871,7 +891,7 @@ static int ahci_pci_device_runtime_resume(struct device *dev)
 	struct ata_host *host = pci_get_drvdata(pdev);
 	int rc;
 
-	rc = ahci_reset_controller(host);
+	rc = ahci_pci_reset_controller(host);
 	if (rc)
 		return rc;
 	ahci_pci_init_controller(host);
@@ -907,7 +927,7 @@ static int ahci_pci_device_resume(struct device *dev)
 		ahci_mcp89_apple_enable(pdev);
 
 	if (pdev->dev.power.power_state.event == PM_EVENT_SUSPEND) {
-		rc = ahci_reset_controller(host);
+		rc = ahci_pci_reset_controller(host);
 		if (rc)
 			return rc;
 
@@ -1503,7 +1523,7 @@ static irqreturn_t ahci_thunderx_irq_handler(int irq, void *dev_instance)
 }
 #endif
 
-static void ahci_remap_check(struct pci_dev *pdev, int bar,
+static int ahci_remap_check(struct pci_dev *pdev, int bar,
 		struct ahci_host_priv *hpriv)
 {
 	int i;
@@ -1516,7 +1536,7 @@ static void ahci_remap_check(struct pci_dev *pdev, int bar,
 	    pci_resource_len(pdev, bar) < SZ_512K ||
 	    bar != AHCI_PCI_BAR_STANDARD ||
 	    !(readl(hpriv->mmio + AHCI_VSCAP) & 1))
-		return;
+		return 0;
 
 	cap = readq(hpriv->mmio + AHCI_REMAP_CAP);
 	for (i = 0; i < AHCI_MAX_REMAP; i++) {
@@ -1531,18 +1551,11 @@ static void ahci_remap_check(struct pci_dev *pdev, int bar,
 	}
 
 	if (!hpriv->remapped_nvme)
-		return;
+		return 0;
 
-	dev_warn(&pdev->dev, "Found %u remapped NVMe devices.\n",
-		 hpriv->remapped_nvme);
-	dev_warn(&pdev->dev,
-		 "Switch your BIOS from RAID to AHCI mode to use them.\n");
-
-	/*
-	 * Don't rely on the msi-x capability in the remap case,
-	 * share the legacy interrupt across ahci and remapped devices.
-	 */
-	hpriv->flags |= AHCI_HFLAG_NO_MSI;
+	/* Abort probe, allowing intel-nvme-remap to step in when available */
+	dev_info(&pdev->dev, "Device will be handled by intel-nvme-remap.\n");
+	return -ENODEV;
 }
 
 static int ahci_get_irq_vector(struct ata_host *host, int port)
@@ -1762,7 +1775,9 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	hpriv->mmio = pcim_iomap_table(pdev)[ahci_pci_bar];
 
 	/* detect remapped nvme devices */
-	ahci_remap_check(pdev, ahci_pci_bar, hpriv);
+	rc = ahci_remap_check(pdev, ahci_pci_bar, hpriv);
+	if (rc)
+		return rc;
 
 	sysfs_add_file_to_group(&pdev->dev.kobj,
 				&dev_attr_remapped_nvme.attr,
@@ -1784,12 +1799,6 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* save initial config */
 	ahci_pci_save_initial_config(pdev, hpriv);
-
-	/*
-	 * If platform firmware failed to enable ports, try to enable
-	 * them here.
-	 */
-	ahci_intel_pcs_quirk(pdev, hpriv);
 
 	/* prepare host */
 	if (hpriv->cap & HOST_CAP_NCQ) {
@@ -1900,7 +1909,7 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rc)
 		return rc;
 
-	rc = ahci_reset_controller(host);
+	rc = ahci_pci_reset_controller(host);
 	if (rc)
 		return rc;
 
