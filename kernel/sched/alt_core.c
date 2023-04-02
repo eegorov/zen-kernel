@@ -781,8 +781,7 @@ unsigned long get_wchan(struct task_struct *p)
 										\
 	list_del(&p->sq_node);							\
 	if (list_empty(&rq->queue.heads[p->sq_idx])) 				\
-		clear_bit(sched_idx2prio(p->sq_idx, rq), rq->queue.bitmap);	\
-	update_sched_preempt_mask(rq);
+		clear_bit(sched_idx2prio(p->sq_idx, rq), rq->queue.bitmap);
 
 #define __SCHED_ENQUEUE_TASK(p, rq, flags)				\
 	sched_info_enqueue(rq, p);					\
@@ -790,8 +789,7 @@ unsigned long get_wchan(struct task_struct *p)
 									\
 	p->sq_idx = task_sched_prio_idx(p, rq);				\
 	list_add_tail(&p->sq_node, &rq->queue.heads[p->sq_idx]);	\
-	set_bit(sched_idx2prio(p->sq_idx, rq), rq->queue.bitmap);	\
-	update_sched_preempt_mask(rq);
+	set_bit(sched_idx2prio(p->sq_idx, rq), rq->queue.bitmap);
 
 static inline void dequeue_task(struct task_struct *p, struct rq *rq, int flags)
 {
@@ -1579,6 +1577,7 @@ static struct rq *move_queued_task(struct rq *rq, struct task_struct *p, int
 
 	p->on_rq = TASK_ON_RQ_MIGRATING;
 	dequeue_task(p, rq, 0);
+	update_sched_preempt_mask(rq);
 	set_task_cpu(p, new_cpu);
 	raw_spin_unlock(&rq->lock);
 
