@@ -823,6 +823,7 @@ static inline void enqueue_task(struct task_struct *p, struct rq *rq, int flags)
 #endif
 
 	__SCHED_ENQUEUE_TASK(p, rq, flags);
+	update_sched_preempt_mask(rq);
 	++rq->nr_running;
 #ifdef CONFIG_SMP
 	if (2 == rq->nr_running)
@@ -7483,7 +7484,6 @@ static void sched_init_topology_cpumask_early(void)
 		cpumask_copy(tmp, cpumask_of(cpu));
 		tmp++;
 		cpumask_copy(tmp, cpu_possible_mask);
-		cpumask_clear_cpu(cpu, tmp);
 		per_cpu(sched_cpu_llc_mask, cpu) = tmp;
 		per_cpu(sched_cpu_topo_end_mask, cpu) = ++tmp;
 		/*per_cpu(sd_llc_id, cpu) = cpu;*/
@@ -7594,6 +7594,7 @@ static struct kmem_cache *task_group_cache __read_mostly;
 void __init sched_init(void)
 {
 	int i;
+	struct rq *rq;
 
 	printk(KERN_INFO "sched/alt: "ALT_SCHED_NAME" CPU Scheduler "ALT_SCHED_VERSION\
 			 " by Alfred Chen.\n");
@@ -7613,7 +7614,6 @@ void __init sched_init(void)
 	INIT_LIST_HEAD(&root_task_group.siblings);
 #endif /* CONFIG_CGROUP_SCHED */
 	for_each_possible_cpu(i) {
-		struct rq *rq;
 		rq = cpu_rq(i);
 
 		sched_queue_init(&rq->queue);
