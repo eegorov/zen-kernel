@@ -224,12 +224,15 @@ enum io_uring_op {
 	IORING_OP_SEND_ZC,
 	IORING_OP_SENDMSG_ZC,
 
-	/* Additional getdents support missing from upstream */
-	IORING_OP_GETDENTS,
-
 	/* this goes last, obviously */
 	IORING_OP_LAST,
+
+	/* Additional options support missing from upstream */
+	IORING_OP_EXTRA_BEGIN = 200,
+	IORING_OP_GETDENTS,
+	IORING_OP_EXTRA_LAST,
 };
+
 
 /*
  * sqe->uring_cmd_flags
