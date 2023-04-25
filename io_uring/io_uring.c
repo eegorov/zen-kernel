@@ -101,7 +101,7 @@
 #define IORING_MAX_CQ_ENTRIES	(2 * IORING_MAX_ENTRIES)
 
 #define IORING_MAX_RESTRICTIONS	(IORING_RESTRICTION_LAST + \
-				 IORING_REGISTER_LAST + IORING_OP_LAST)
+				 IORING_REGISTER_LAST + IORING_OP_EXTRA_LAST)
 
 #define SQE_COMMON_FLAGS (IOSQE_FIXED_FILE | IOSQE_IO_LINK | \
 			  IOSQE_IO_HARDLINK | IOSQE_ASYNC)
@@ -2223,7 +2223,7 @@ static int io_init_req(struct io_ring_ctx *ctx, struct io_kiocb *req,
 	req->rsrc_node = NULL;
 	req->task = current;
 
-	if (unlikely(opcode >= IORING_OP_LAST)) {
+	if (unlikely(opcode >= IORING_OP_LAST && opcode <= IORING_OP_EXTRA_BEGIN && opcode >= IORING_OP_EXTRA_LAST)) {
 		req->opcode = 0;
 		return -EINVAL;
 	}
@@ -4002,9 +4002,9 @@ static __cold int io_probe(struct io_ring_ctx *ctx, void __user *arg,
 	if (memchr_inv(p, 0, size))
 		goto out;
 
-	p->last_op = IORING_OP_LAST - 1;
-	if (nr_args > IORING_OP_LAST)
-		nr_args = IORING_OP_LAST;
+	p->last_op = IORING_OP_EXTRA_LAST - 1;
+	if (nr_args > IORING_OP_EXTRA_LAST)
+		nr_args = IORING_OP_EXTRA_LAST;
 
 	for (i = 0; i < nr_args; i++) {
 		p->ops[i].op = i;
@@ -4078,7 +4078,7 @@ static __cold int io_register_restrictions(struct io_ring_ctx *ctx,
 				  ctx->restrictions.register_op);
 			break;
 		case IORING_RESTRICTION_SQE_OP:
-			if (res[i].sqe_op >= IORING_OP_LAST) {
+			if (res[i].sqe_op >= IORING_OP_LAST && !(res[i].sqe_op > IORING_OP_EXTRA_BEGIN && res[i].sqe_op < IORING_OP_EXTRA_LAST) ) {
 				ret = -EINVAL;
 				goto out;
 			}
