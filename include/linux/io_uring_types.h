@@ -229,7 +229,7 @@ struct io_bpf_filters {
 
 struct io_restriction {
 	DECLARE_BITMAP(register_op, IORING_REGISTER_LAST);
-	DECLARE_BITMAP(sqe_op, IORING_OP_LAST);
+	DECLARE_BITMAP(sqe_op, IORING_OP_EXTRA_LAST);
 	struct io_bpf_filters *bpf_filters;
 	/* ->bpf_filters needs COW on modification */
 	bool bpf_filters_cow;
