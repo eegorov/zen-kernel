@@ -185,7 +185,7 @@ struct io_rings {
 
 struct io_restriction {
 	DECLARE_BITMAP(register_op, IORING_REGISTER_LAST);
-	DECLARE_BITMAP(sqe_op, IORING_OP_LAST);
+	DECLARE_BITMAP(sqe_op, IORING_OP_EXTRA_LAST);
 	u8 sqe_flags_allowed;
 	u8 sqe_flags_required;
 	bool registered;
