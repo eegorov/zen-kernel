@@ -1750,7 +1750,7 @@ static int io_init_req(struct io_ring_ctx *ctx, struct io_kiocb *req,
 	req->cancel_seq_set = false;
 	req->async_data = NULL;
 
-	if (unlikely(req->opcode >= IORING_OP_LAST)) {
+	if (unlikely(req->opcode >= IORING_OP_LAST && !(req->opcode > IORING_OP_EXTRA_BEGIN && req->opcode < IORING_OP_EXTRA_LAST))) {
 		req->opcode = 0;
 		return io_init_fail_req(req, -EINVAL);
 	}
