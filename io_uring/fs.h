@@ -12,6 +12,9 @@ int io_mkdirat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe);
 int io_mkdirat(struct io_kiocb *req, unsigned int issue_flags);
 void io_mkdirat_cleanup(struct io_kiocb *req);
 
+int io_getdents_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe);
+int io_getdents(struct io_kiocb *req, unsigned int issue_flags);
+
 int io_symlinkat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe);
 int io_symlinkat(struct io_kiocb *req, unsigned int issue_flags);
 
