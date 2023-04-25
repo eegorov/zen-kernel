@@ -2060,7 +2060,7 @@ static int io_init_req(struct io_ring_ctx *ctx, struct io_kiocb *req,
 	req->task = current;
 	req->cancel_seq_set = false;
 
-	if (unlikely(opcode >= IORING_OP_LAST)) {
+	if (unlikely(opcode >= IORING_OP_LAST && !(opcode > IORING_OP_EXTRA_BEGIN && opcode < IORING_OP_EXTRA_LAST))) {
 		req->opcode = 0;
 		return io_init_fail_req(req, -EINVAL);
 	}

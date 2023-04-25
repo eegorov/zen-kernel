@@ -260,6 +260,11 @@ enum io_uring_op {
 
 	/* this goes last, obviously */
 	IORING_OP_LAST,
+
+	/* Additional options support missing from upstream */
+	IORING_OP_EXTRA_BEGIN = 200,
+	IORING_OP_GETDENTS,
+	IORING_OP_EXTRA_LAST,
 };
 
 /*
