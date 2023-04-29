@@ -295,6 +295,7 @@ struct printk_message {
 	pid_t			pid;
 	char			comm[TASK_COMM_LEN];
 #endif
+	unsigned int		level;
 };
 
 bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
