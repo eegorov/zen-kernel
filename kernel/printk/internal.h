@@ -102,4 +102,5 @@ struct printk_message {
 	unsigned int		outbuf_len;
 	u64			seq;
 	unsigned long		dropped;
+	unsigned int		level;
 };
