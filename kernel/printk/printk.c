@@ -2998,6 +2998,7 @@ bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
 	}
 out:
 	pmsg->outbuf_len = len;
+	pmsg->level = r.info->level;
 	return true;
 }
 

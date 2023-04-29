@@ -330,6 +330,7 @@ struct printk_message {
 	unsigned int		outbuf_len;
 	u64			seq;
 	unsigned long		dropped;
+	unsigned int		level;
 };
 
 bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
