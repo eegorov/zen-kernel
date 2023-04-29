@@ -127,6 +127,7 @@ struct printk_message {
 	unsigned int		outbuf_len;
 	u64			seq;
 	unsigned long		dropped;
+	unsigned int		level;
 };
 
 bool other_cpu_in_panic(void);
