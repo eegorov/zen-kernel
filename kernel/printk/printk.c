@@ -2876,6 +2876,7 @@ bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
 	}
 out:
 	pmsg->outbuf_len = len;
+	pmsg->level = r.info->level;
 	return true;
 }
 
@@ -2940,7 +2941,7 @@ static bool console_emit_next_record(struct console *con, bool *handover, int co
 	stop_critical_timings();
 
 	/* Write everything out to the hardware. */
-	con->write(con, outbuf, pmsg.outbuf_len, r.info->level);
+	con->write(con, outbuf, pmsg.outbuf_len, pmsg.level);
 
 	start_critical_timings();
 
