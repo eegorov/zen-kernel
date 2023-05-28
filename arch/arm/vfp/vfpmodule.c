@@ -689,13 +689,8 @@ asmlinkage void vfp_entry(u32 trigger, struct thread_info *ti, u32 resume_pc,
 	if (unlikely(!have_vfp))
 		return;
 
-	vfp_lock();
+	local_bh_disable();
 	vfp_support_entry(trigger, ti, resume_pc, resume_return_address);
-}
-
-asmlinkage void vfp_exit(void)
-{
-	vfp_unlock();
 }
 
 #ifdef CONFIG_KERNEL_MODE_NEON
