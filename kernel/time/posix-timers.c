@@ -141,17 +141,18 @@ static int posix_timer_add(struct k_itimer *timer)
 {
 	struct signal_struct *sig = current->signal;
 	struct hlist_head *head;
-	unsigned int start, id;
+	unsigned int cnt, id;
 
-	/* Can be written by a different task concurrently in the loop below */
-	start = READ_ONCE(sig->next_posix_timer_id);
-
-	for (id = ~start; start != id; id++) {
+	/*
+	 * FIXME: Replace this by a per signal struct xarray once there is
+	 * a plan to handle the resulting CRIU regression gracefully.
+	 */
+	for (cnt = 0; cnt <= INT_MAX; cnt++) {
 		spin_lock(&hash_lock);
 		id = sig->next_posix_timer_id;
 
 		/* Write the next ID back. Clamp it to the positive space */
-		WRITE_ONCE(sig->next_posix_timer_id, (id + 1) & INT_MAX);
+		sig->next_posix_timer_id = (id + 1) & INT_MAX;
 
 		head = &posix_timers_hashtable[hash(sig, id)];
 		if (!__posix_timers_find(head, sig, id)) {
