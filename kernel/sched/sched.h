@@ -594,6 +594,7 @@ struct cfs_rq {
 	} removed;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
+	u64			last_update_tg_load_avg;
 	unsigned long		tg_load_avg_contrib;
 	long			propagate;
 	long			prop_runnable_sum;
@@ -2517,6 +2518,8 @@ extern void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags);
 
 #ifdef CONFIG_PREEMPT_RT
 #define SCHED_NR_MIGRATE_BREAK 8
+#elif defined(CONFIG_ZEN_INTERACTIVE)
+#define SCHED_NR_MIGRATE_BREAK 64
 #else
 #define SCHED_NR_MIGRATE_BREAK 32
 #endif
