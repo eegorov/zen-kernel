@@ -939,7 +939,7 @@ static void gs_console_work(struct work_struct *work)
 }
 
 static void gs_console_write(struct console *co,
-			     const char *buf, unsigned count)
+			     const char *buf, unsigned count, unsigned int color)
 {
 	struct gs_console *cons = container_of(co, struct gs_console, console);
 	unsigned long flags;
