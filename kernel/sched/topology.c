@@ -3,6 +3,7 @@
  * Scheduler topology setup/handling methods
  */
 
+#ifndef CONFIG_SCHED_ALT
 #include <linux/bsearch.h>
 
 DEFINE_MUTEX(sched_domains_mutex);
@@ -1429,8 +1430,10 @@ static void asym_cpu_capacity_scan(void)
  */
 
 static int default_relax_domain_level = -1;
+#endif /* CONFIG_SCHED_ALT */
 int sched_domain_level_max;
 
+#ifndef CONFIG_SCHED_ALT
 static int __init setup_relax_domain_level(char *str)
 {
 	if (kstrtoint(str, 0, &default_relax_domain_level))
@@ -1663,6 +1666,7 @@ sd_init(struct sched_domain_topology_level *tl,
 
 	return sd;
 }
+#endif /* CONFIG_SCHED_ALT */
 
 /*
  * Topology list, bottom-up.
@@ -1699,6 +1703,7 @@ void __init set_sched_topology(struct sched_domain_topology_level *tl)
 	sched_domain_topology_saved = NULL;
 }
 
+#ifndef CONFIG_SCHED_ALT
 #ifdef CONFIG_NUMA
 
 static const struct cpumask *sd_numa_mask(int cpu)
@@ -2122,11 +2127,15 @@ static int hop_cmp(const void *a, const void *b)
  */
 int sched_numa_find_nth_cpu(const struct cpumask *cpus, int cpu, int node)
 {
-	struct __cmp_key k = { .cpus = cpus, .node = node, .cpu = cpu };
+	struct __cmp_key k = { .cpus = cpus, .cpu = cpu };
 	struct cpumask ***hop_masks;
 	int hop, ret = nr_cpu_ids;
 
 	rcu_read_lock();
+
+	/* CPU-less node entries are uninitialized in sched_domains_numa_masks */
+	node = numa_nearest_node(node, N_CPU);
+	k.node = node;
 
 	k.masks = rcu_dereference(sched_domains_numa_masks);
 	if (!k.masks)
@@ -2754,3 +2763,20 @@ void partition_sched_domains(int ndoms_new, cpumask_var_t doms_new[],
 	partition_sched_domains_locked(ndoms_new, doms_new, dattr_new);
 	mutex_unlock(&sched_domains_mutex);
 }
+#else /* CONFIG_SCHED_ALT */
+void partition_sched_domains(int ndoms_new, cpumask_var_t doms_new[],
+			     struct sched_domain_attr *dattr_new)
+{}
+
+#ifdef CONFIG_NUMA
+int sched_numa_find_closest(const struct cpumask *cpus, int cpu)
+{
+	return best_mask_cpu(cpu, cpus);
+}
+
+int sched_numa_find_nth_cpu(const struct cpumask *cpus, int cpu, int node)
+{
+	return cpumask_nth(cpu, cpus);
+}
+#endif /* CONFIG_NUMA */
+#endif
