@@ -103,13 +103,20 @@ static inline int task_on_rq_migrating(struct task_struct *p)
 	return READ_ONCE(p->on_rq) == TASK_ON_RQ_MIGRATING;
 }
 
-/*
- * wake flags
- */
+/* Wake flags. The first three directly map to some SD flag value */
+#define WF_EXEC         0x02 /* Wakeup after exec; maps to SD_BALANCE_EXEC */
 #define WF_FORK         0x04 /* Wakeup after fork; maps to SD_BALANCE_FORK */
+#define WF_TTWU         0x08 /* Wakeup;            maps to SD_BALANCE_WAKE */
+
 #define WF_SYNC         0x10 /* Waker goes to sleep after wakeup */
 #define WF_MIGRATED     0x20 /* Internal use, task got migrated */
 #define WF_CURRENT_CPU  0x40 /* Prefer to move the wakee to the current CPU. */
+
+#ifdef CONFIG_SMP
+static_assert(WF_EXEC == SD_BALANCE_EXEC);
+static_assert(WF_FORK == SD_BALANCE_FORK);
+static_assert(WF_TTWU == SD_BALANCE_WAKE);
+#endif
 
 #define SCHED_QUEUE_BITS	(SCHED_LEVELS - 1)
 
@@ -255,6 +262,8 @@ struct rq {
 	/* Scratch cpumask to be temporarily used under rq_lock */
 	cpumask_var_t		scratch_mask;
 };
+
+extern unsigned int sysctl_sched_base_slice;
 
 extern unsigned long rq_load_util(struct rq *rq, unsigned long max);
 
@@ -406,11 +415,6 @@ task_rq_unlock(struct rq *rq, struct task_struct *p, struct rq_flags *rf)
 	raw_spin_unlock_irqrestore(&p->pi_lock, rf->flags);
 }
 
-DEFINE_LOCK_GUARD_1(task_rq_lock, struct task_struct,
-		    _T->rq = task_rq_lock(_T->lock, &_T->rf),
-		    task_rq_unlock(_T->rq, _T->lock, &_T->rf),
-		    struct rq *rq; struct rq_flags rf)
-
 static inline void
 rq_lock(struct rq *rq, struct rq_flags *rf)
 	__acquires(rq->lock)
@@ -438,36 +442,6 @@ rq_unlock_irq(struct rq *rq, struct rq_flags *rf)
 {
 	raw_spin_unlock_irq(&rq->lock);
 }
-
-static inline void
-rq_lock_irqsave(struct rq *rq, struct rq_flags *rf)
-	__acquires(rq->lock)
-{
-	raw_spin_lock_irqsave(&rq->lock, rf->flags);
-}
-
-static inline void
-rq_unlock_irqrestore(struct rq *rq, struct rq_flags *rf)
-	__releases(rq->lock)
-{
-	raw_spin_unlock_irqrestore(&rq->lock, rf->flags);
-}
-
-DEFINE_LOCK_GUARD_1(rq_lock, struct rq,
-		    rq_lock(_T->lock, &_T->rf),
-		    rq_unlock(_T->lock, &_T->rf),
-		    struct rq_flags rf)
-
-DEFINE_LOCK_GUARD_1(rq_lock_irq, struct rq,
-		    rq_lock_irq(_T->lock, &_T->rf),
-		    rq_unlock_irq(_T->lock, &_T->rf),
-		    struct rq_flags rf)
-
-DEFINE_LOCK_GUARD_1(rq_lock_irqsave, struct rq,
-		    rq_lock_irqsave(_T->lock, &_T->rf),
-		    rq_unlock_irqrestore(_T->lock, &_T->rf),
-		    struct rq_flags rf)
-
 
 static inline struct rq *
 this_rq_lock_irq(struct rq_flags *rf)
