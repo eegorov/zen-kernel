@@ -3510,13 +3510,12 @@ static inline void task_tick_mm_cid(struct rq *rq, struct task_struct *curr) { }
 static inline void init_sched_mm_cid(struct task_struct *t) { }
 #endif
 
+extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
+extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
+
 static inline int task_running_nice(struct task_struct *p)
 {
 	return (task_nice(p) > 0);
 }
 #endif /* !CONFIG_SCHED_ALT */
-
-extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
-extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
-
 #endif /* _KERNEL_SCHED_SCHED_H */
