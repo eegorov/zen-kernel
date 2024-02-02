@@ -9138,7 +9138,7 @@ static const struct ieee80211_ops ath11k_ops = {
 #endif
 
 #ifdef CONFIG_ATH11K_DEBUGFS
-	.vif_add_debugfs		= ath11k_debugfs_op_add_interface,
+	.vif_add_debugfs		= ath11k_debugfs_op_vif_add,
 	.sta_add_debugfs		= ath11k_debugfs_sta_op_add,
 #endif
 
