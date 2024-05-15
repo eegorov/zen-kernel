@@ -143,7 +143,7 @@ static void efi_earlycon_write_char(u32 *dst, unsigned char c, unsigned int h)
 }
 
 static void
-efi_earlycon_write(struct console *con, const char *str, unsigned int num)
+efi_earlycon_write(struct console *con, const char *str, unsigned int num, unsigned int color)
 {
 	struct screen_info *si;
 	u32 cur_efi_x = efi_x;
