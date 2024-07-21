@@ -38,6 +38,13 @@ struct io_mkdir {
 	struct filename			*filename;
 };
 
+struct io_getdents {
+	struct file			*file;
+	struct linux_dirent64 __user	*dirent;
+	unsigned int			count;
+	loff_t				pos;
+};
+
 struct io_link {
 	struct file			*file;
 	int				old_dfd;
@@ -193,6 +200,56 @@ void io_mkdirat_cleanup(struct io_kiocb *req)
 	struct io_mkdir *md = io_kiocb_to_cmd(req, struct io_mkdir);
 
 	putname(md->filename);
+}
+
+int io_getdents_prep(struct io_kiocb *req,
+				const struct io_uring_sqe *sqe)
+{
+	struct io_getdents *getdents = io_kiocb_to_cmd(req, struct io_getdents);
+
+	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
+		return -EINVAL;
+	if (sqe->ioprio || sqe->rw_flags || sqe->buf_index)
+		return -EINVAL;
+
+	getdents->pos = READ_ONCE(sqe->off);
+	getdents->dirent = u64_to_user_ptr(READ_ONCE(sqe->addr));
+	getdents->count = READ_ONCE(sqe->len);
+	return 0;
+}
+
+int io_getdents(struct io_kiocb *req, unsigned int issue_flags)
+{
+	struct io_getdents *getdents =  io_kiocb_to_cmd(req, struct io_getdents);
+	int ret = 0;
+
+	/* getdents always requires a blocking context */
+	if (issue_flags & IO_URING_F_NONBLOCK)
+		return -EAGAIN;
+
+	/* for vfs_llseek and to serialize ->iterate_shared() on this file */
+	mutex_lock(&req->file->f_pos_lock);
+
+	if (getdents->pos != -1 && getdents->pos != req->file->f_pos) {
+		loff_t res = vfs_llseek(req->file, getdents->pos, SEEK_SET);
+		if (res < 0)
+			ret = res;
+	}
+
+	if (ret == 0) {
+		ret = vfs_getdents(req->file, getdents->dirent,
+					getdents->count);
+       }
+
+	mutex_unlock(&req->file->f_pos_lock);
+
+	if (ret < 0) {
+		if (ret == -ERESTARTSYS)
+			ret = -EINTR;
+		req_set_fail(req);
+	}
+	io_req_set_res(req, ret, 0);
+	return 0;
 }
 
 int io_symlinkat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)

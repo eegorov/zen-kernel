@@ -368,6 +368,11 @@ const struct io_issue_def io_issue_defs[] = {
 		.prep			= io_mkdirat_prep,
 		.issue			= io_mkdirat,
 	},
+	[IORING_OP_GETDENTS] = {
+		.needs_file		= 1,
+		.prep			= io_getdents_prep,
+		.issue			= io_getdents,
+	},
 	[IORING_OP_SYMLINKAT] = {
 		.prep			= io_symlinkat_prep,
 		.issue			= io_symlinkat,
@@ -646,6 +651,9 @@ const struct io_cold_def io_cold_defs[] = {
 		.name			= "MKDIRAT",
 		.cleanup		= io_mkdirat_cleanup,
 	},
+        [IORING_OP_GETDENTS] = {
+                .name                   = "GETDENTS",
+	},
 	[IORING_OP_SYMLINKAT] = {
 		.name			= "SYMLINKAT",
 		.cleanup		= io_link_cleanup,
@@ -720,7 +728,7 @@ const struct io_cold_def io_cold_defs[] = {
 
 const char *io_uring_get_opcode(u8 opcode)
 {
-	if (opcode < IORING_OP_LAST)
+	if (opcode < IORING_OP_LAST || (opcode >  IORING_OP_EXTRA_BEGIN && opcode < IORING_OP_EXTRA_LAST))
 		return io_cold_defs[opcode].name;
 	return "INVALID";
 }
@@ -729,10 +737,12 @@ void __init io_uring_optable_init(void)
 {
 	int i;
 
-	BUILD_BUG_ON(ARRAY_SIZE(io_cold_defs) != IORING_OP_LAST);
-	BUILD_BUG_ON(ARRAY_SIZE(io_issue_defs) != IORING_OP_LAST);
+	BUILD_BUG_ON(ARRAY_SIZE(io_cold_defs) != IORING_OP_EXTRA_LAST);
+	BUILD_BUG_ON(ARRAY_SIZE(io_issue_defs) != IORING_OP_EXTRA_LAST);
 
 	for (i = 0; i < ARRAY_SIZE(io_issue_defs); i++) {
+		if (i >= IORING_OP_LAST && i <= IORING_OP_EXTRA_BEGIN)
+			continue;
 		BUG_ON(!io_issue_defs[i].prep);
 		if (io_issue_defs[i].prep != io_eopnotsupp_prep)
 			BUG_ON(!io_issue_defs[i].issue);
