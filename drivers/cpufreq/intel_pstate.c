@@ -3393,7 +3393,9 @@ static const struct x86_cpu_id intel_epp_default[] = {
 	X86_MATCH_INTEL_FAM6_MODEL(ALDERLAKE_L, HWP_SET_DEF_BALANCE_PERF_EPP(102)),
 	X86_MATCH_INTEL_FAM6_MODEL(SAPPHIRERAPIDS_X, HWP_SET_DEF_BALANCE_PERF_EPP(32)),
 	X86_MATCH_INTEL_FAM6_MODEL(METEORLAKE_L, HWP_SET_EPP_VALUES(HWP_EPP_POWERSAVE,
-							HWP_EPP_BALANCE_POWERSAVE, 115, 16)),
+								    179, 64, 16)),
+	X86_MATCH_INTEL_FAM6_MODEL(ARROWLAKE, HWP_SET_EPP_VALUES(HWP_EPP_POWERSAVE,
+								 179, 64, 16)),
 	{}
 };
 
@@ -3550,6 +3552,8 @@ static int __init intel_pstate_setup(char *str)
 
 	if (!strcmp(str, "disable"))
 		no_load = 1;
+	else if (!strcmp(str, "enable"))
+		no_load = 0;
 	else if (!strcmp(str, "active"))
 		default_driver = &intel_pstate;
 	else if (!strcmp(str, "passive"))
