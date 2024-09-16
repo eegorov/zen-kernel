@@ -327,7 +327,7 @@ struct nbcon_write_context {
  */
 struct console {
 	char			name[16];
-	void			(*write)(struct console *co, const char *s, unsigned int count);
+	void			(*write)(struct console *co, const char *s, unsigned int count, unsigned int level);
 	int			(*read)(struct console *co, char *s, unsigned int count);
 	struct tty_driver	*(*device)(struct console *co, int *index);
 	void			(*unblank)(void);

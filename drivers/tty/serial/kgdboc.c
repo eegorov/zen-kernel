@@ -482,7 +482,7 @@ static int kgdboc_earlycon_get_char(void)
 static void kgdboc_earlycon_put_char(u8 chr)
 {
 	kgdboc_earlycon_io_ops.cons->write(kgdboc_earlycon_io_ops.cons, &chr,
-					   1);
+					   1, 0);
 }
 
 static void kgdboc_earlycon_pre_exp_handler(void)
