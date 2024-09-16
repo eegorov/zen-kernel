@@ -70,7 +70,7 @@ export BITS
 #
 #    https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53383
 #
-KBUILD_CFLAGS += -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
+KBUILD_CFLAGS += -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -mno-avx2 -fno-tree-vectorize
 KBUILD_RUSTFLAGS += --target=$(objtree)/scripts/target.json
 KBUILD_RUSTFLAGS += -Ctarget-feature=-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-avx,-avx2
 
@@ -220,6 +220,12 @@ else
         cflags-$(CONFIG_GENERIC_CPU3) 	+= -march=x86-64-v3
         cflags-$(CONFIG_GENERIC_CPU4) 	+= -march=x86-64-v4
         cflags-$(CONFIG_GENERIC_CPU)	+= -mtune=generic
+        cflags-$(CONFIG_MAMD_CPU_V2)	+= -march=x86-64-v2
+        cflags-$(CONFIG_MAMD_CPU_V3)	+= -march=x86-64-v3
+        cflags-$(CONFIG_MAMD_CPU_V4)	+= -march=x86-64-v4
+        cflags-$(CONFIG_MINTEL_CPU_V2)	+= -march=x86-64-v2
+        cflags-$(CONFIG_MINTEL_CPU_V3)	+= -march=x86-64-v3
+        cflags-$(CONFIG_MINTEL_CPU_V4)	+= -march=x86-64-v4
         KBUILD_CFLAGS += $(cflags-y)
 
         rustflags-$(CONFIG_MK8)		+= -Ctarget-cpu=k8
