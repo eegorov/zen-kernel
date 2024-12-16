@@ -73,19 +73,16 @@ All operations on the device are done through ioctls. There are four
 structures used in ioctl calls::
 
    struct ntsync_sem_args {
-   	__u32 sem;
    	__u32 count;
    	__u32 max;
    };
 
    struct ntsync_mutex_args {
-   	__u32 mutex;
    	__u32 owner;
    	__u32 count;
    };
 
    struct ntsync_event_args {
-   	__u32 event;
    	__u32 signaled;
    	__u32 manual;
    };
@@ -102,7 +99,7 @@ structures used in ioctl calls::
    };
 
 Depending on the ioctl, members of the structure may be used as input,
-output, or not at all. All ioctls return 0 on success.
+output, or not at all.
 
 The ioctls on the device file are as follows:
 
@@ -113,14 +110,13 @@ The ioctls on the device file are as follows:
 
   .. list-table::
 
-     * - ``sem``
-       - On output, contains a file descriptor to the created semaphore.
      * - ``count``
        - Initial count of the semaphore.
      * - ``max``
        - Maximum count of the semaphore.
 
   Fails with ``EINVAL`` if ``count`` is greater than ``max``.
+  On success, returns a file descriptor the created semaphore.
 
 .. c:macro:: NTSYNC_IOC_CREATE_MUTEX
 
@@ -129,8 +125,6 @@ The ioctls on the device file are as follows:
 
   .. list-table::
 
-     * - ``mutex``
-       - On output, contains a file descriptor to the created mutex.
      * - ``count``
        - Initial recursion count of the mutex.
      * - ``owner``
@@ -138,6 +132,7 @@ The ioctls on the device file are as follows:
 
   If ``owner`` is nonzero and ``count`` is zero, or if ``owner`` is
   zero and ``count`` is nonzero, the function fails with ``EINVAL``.
+  On success, returns a file descriptor the created mutex.
 
 .. c:macro:: NTSYNC_IOC_CREATE_EVENT
 
@@ -146,14 +141,14 @@ The ioctls on the device file are as follows:
 
   .. list-table::
 
-     * - ``event``
-       - On output, contains a file descriptor to the created event.
      * - ``signaled``
        - If nonzero, the event is initially signaled, otherwise
          nonsignaled.
      * - ``manual``
        - If nonzero, the event is a manual-reset event, otherwise
          auto-reset.
+
+  On success, returns a file descriptor the created event.
 
 The ioctls on the individual objects are as follows:
 
@@ -177,8 +172,6 @@ The ioctls on the individual objects are as follows:
 
   .. list-table::
 
-     * - ``mutex``
-       - Ignored.
      * - ``owner``
        - Specifies the owner trying to release this mutex.
      * - ``count``
@@ -227,8 +220,6 @@ The ioctls on the individual objects are as follows:
 
   .. list-table::
 
-     * - ``sem``
-       - Ignored.
      * - ``count``
        - On output, contains the current count of the semaphore.
      * - ``max``
@@ -241,8 +232,6 @@ The ioctls on the individual objects are as follows:
 
   .. list-table::
 
-     * - ``mutex``
-       - Ignored.
      * - ``owner``
        - On output, contains the current owner of the mutex, or zero
          if the mutex is not currently owned.
@@ -260,8 +249,6 @@ The ioctls on the individual objects are as follows:
 
   .. list-table::
 
-     * - ``event``
-       - Ignored.
      * - ``signaled``
        - On output, contains the current state of the event.
      * - ``manual``
