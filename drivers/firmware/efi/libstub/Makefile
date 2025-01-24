@@ -7,7 +7,7 @@
 #
 
 # non-x86 reuses KBUILD_CFLAGS, x86 does not
-cflags-y			:= $(KBUILD_CFLAGS)
+cflags-y			:= $(KBUILD_CFLAGS) $(CSTD_FLAG)
 
 cflags-$(CONFIG_X86_32)		:= -march=i386
 cflags-$(CONFIG_X86_64)		:= -mcmodel=small
@@ -18,7 +18,7 @@ cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ \
 				   $(call cc-disable-warning, address-of-packed-member) \
 				   $(call cc-disable-warning, gnu) \
 				   -fno-asynchronous-unwind-tables \
-				   $(CLANG_FLAGS)
+				   $(CLANG_FLAGS) $(CSTD_FLAG)
 
 # arm64 uses the full KBUILD_CFLAGS so it's necessary to explicitly
 # disable the stackleak plugin
@@ -42,7 +42,7 @@ KBUILD_CFLAGS			:= $(subst $(CC_FLAGS_FTRACE),,$(cflags-y)) \
 				   -ffreestanding \
 				   -fno-stack-protector \
 				   $(call cc-option,-fno-addrsig) \
-				   -D__DISABLE_EXPORTS
+				   -D__DISABLE_EXPORTS $(CSTD_FLAG)
 
 #
 # struct randomization only makes sense for Linux internal types, which the EFI
