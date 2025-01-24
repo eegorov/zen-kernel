@@ -871,7 +871,7 @@ retry:
 	return ret;
 }
 
-static void early_xdbc_write(struct console *con, const char *str, u32 n)
+static void early_xdbc_write(struct console *con, const char *str, u32 n, u32 color)
 {
 	/* static variables are zeroed, so buf is always NULL terminated */
 	static char buf[XDBC_MAX_PACKET + 1];
