@@ -6,6 +6,7 @@
 #include <linux/mmu_notifier.h>
 #include <linux/sched.h>
 
+#include <asm/barrier.h>
 #include <asm/processor.h>
 #include <asm/cpufeature.h>
 #include <asm/special_insns.h>
@@ -64,21 +65,6 @@ static inline void cr4_clear_bits(unsigned long mask)
  * lines.
  */
 #define TLB_NR_DYN_ASIDS	6
-
-#ifdef CONFIG_CPU_SUP_AMD
-#define is_dyn_asid(asid) (asid) < TLB_NR_DYN_ASIDS
-#define is_broadcast_asid(asid) (asid) >= TLB_NR_DYN_ASIDS
-#define in_asid_transition(info) (info->mm && info->mm->context.asid_transition)
-#else
-#define is_dyn_asid(asid) true
-#define is_broadcast_asid(asid) false
-#define in_asid_transition(info) false
-
-inline bool needs_broadcast_asid_reload(struct mm_struct *next, u16 prev_asid)
-{
-	return false;
-}
-#endif
 
 struct tlb_context {
 	u64 ctx_id;
@@ -198,7 +184,13 @@ static inline void cr4_init_shadow(void)
 
 extern unsigned long mmu_cr4_features;
 extern u32 *trampoline_cr4_features;
+
+/* How many pages can we invalidate with one INVLPGB. */
+#ifdef CONFIG_X86_BROADCAST_TLB_FLUSH
 extern u16 invlpgb_count_max;
+#else
+#define invlpgb_count_max 1
+#endif
 
 extern void initialize_tlbstate_and_flush(void);
 
@@ -246,6 +238,78 @@ void flush_tlb_one_user(unsigned long addr);
 void flush_tlb_one_kernel(unsigned long addr);
 void flush_tlb_multi(const struct cpumask *cpumask,
 		      const struct flush_tlb_info *info);
+
+#ifdef CONFIG_X86_BROADCAST_TLB_FLUSH
+static inline bool is_dyn_asid(u16 asid)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_INVLPGB))
+		return true;
+
+	return asid < TLB_NR_DYN_ASIDS;
+}
+
+static inline bool is_global_asid(u16 asid)
+{
+	return !is_dyn_asid(asid);
+}
+
+static inline bool in_asid_transition(const struct flush_tlb_info *info)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_INVLPGB))
+		return false;
+
+	return info->mm && READ_ONCE(info->mm->context.asid_transition);
+}
+
+static inline u16 mm_global_asid(struct mm_struct *mm)
+{
+	u16 asid;
+
+	if (!cpu_feature_enabled(X86_FEATURE_INVLPGB))
+		return 0;
+
+	asid = smp_load_acquire(&mm->context.global_asid);
+
+	/* mm->context.global_asid is either 0, or a global ASID */
+	VM_WARN_ON_ONCE(asid && is_dyn_asid(asid));
+
+	return asid;
+}
+#else
+static inline bool is_dyn_asid(u16 asid)
+{
+	return true;
+}
+
+static inline bool is_global_asid(u16 asid)
+{
+	return false;
+}
+
+static inline bool in_asid_transition(const struct flush_tlb_info *info)
+{
+	return false;
+}
+
+static inline u16 mm_global_asid(struct mm_struct *mm)
+{
+	return 0;
+}
+
+static inline bool needs_global_asid_reload(struct mm_struct *next, u16 prev_asid)
+{
+	return false;
+}
+
+static inline void broadcast_tlb_flush(struct flush_tlb_info *info)
+{
+	VM_WARN_ON_ONCE(1);
+}
+
+static inline void consider_global_asid(struct mm_struct *mm)
+{
+}
+#endif
 
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>

@@ -2,7 +2,9 @@
 #ifndef _ASM_X86_INVLPGB
 #define _ASM_X86_INVLPGB
 
+#include <linux/kernel.h>
 #include <vdso/bits.h>
+#include <vdso/page.h>
 
 /*
  * INVLPGB does broadcast TLB invalidation across all the CPUs in the system.
@@ -13,21 +15,34 @@
  * TLBSYNC is used to ensure that pending INVLPGB invalidations initiated from
  * this CPU have completed.
  */
-static inline void __invlpgb(unsigned long asid, unsigned long pcid, unsigned long addr,
-			    int extra_count, bool pmd_stride, unsigned long flags)
+static inline void __invlpgb(unsigned long asid, unsigned long pcid,
+			     unsigned long addr, u16 extra_count,
+			     bool pmd_stride, u8 flags)
 {
-	u64 rax = addr | flags;
-	u32 ecx = (pmd_stride << 31) | extra_count;
 	u32 edx = (pcid << 16) | asid;
+	u32 ecx = (pmd_stride << 31) | extra_count;
+	u64 rax = addr | flags;
 
-	asm volatile("invlpgb" : : "a" (rax), "c" (ecx), "d" (edx));
+	/* The low bits in rax are for flags. Verify addr is clean. */
+	VM_WARN_ON_ONCE(addr & ~PAGE_MASK);
+
+	/* INVLPGB; supported in binutils >= 2.36. */
+	asm volatile(".byte 0x0f, 0x01, 0xfe" : : "a" (rax), "c" (ecx), "d" (edx));
+}
+
+/* Wait for INVLPGB originated by this CPU to complete. */
+static inline void tlbsync(void)
+{
+	cant_migrate();
+	/* TLBSYNC: supported in binutils >= 0.36. */
+	asm volatile(".byte 0x0f, 0x01, 0xff" ::: "memory");
 }
 
 /*
  * INVLPGB can be targeted by virtual address, PCID, ASID, or any combination
  * of the three. For example:
  * - INVLPGB_VA | INVLPGB_INCLUDE_GLOBAL: invalidate all TLB entries at the address
- * - INVLPGB_PCID:              	  invalidate all TLB entries matching the PCID
+ * - INVLPGB_PCID:			  invalidate all TLB entries matching the PCID
  *
  * The first can be used to invalidate (kernel) mappings at a particular
  * address across all processes.
@@ -46,22 +61,25 @@ static inline void invlpgb_flush_user(unsigned long pcid,
 				      unsigned long addr)
 {
 	__invlpgb(0, pcid, addr, 0, 0, INVLPGB_PCID | INVLPGB_VA);
+	tlbsync();
 }
 
-static inline void invlpgb_flush_user_nr(unsigned long pcid, unsigned long addr,
-					 int nr, bool pmd_stride)
+static inline void invlpgb_flush_user_nr_nosync(unsigned long pcid,
+						unsigned long addr,
+						u16 nr,
+						bool pmd_stride,
+						bool freed_tables)
 {
-	__invlpgb(0, pcid, addr, nr - 1, pmd_stride, INVLPGB_PCID | INVLPGB_VA | INVLPGB_FINAL_ONLY);
-}
+	unsigned long flags = INVLPGB_PCID | INVLPGB_VA;
 
-/* Flush all mappings for a given ASID, not including globals. */
-static inline void invlpgb_flush_single_asid(unsigned long asid)
-{
-	__invlpgb(asid, 0, 0, 0, 0, INVLPGB_ASID);
+	if (!freed_tables)
+		flags |= INVLPGB_FINAL_ONLY;
+
+	__invlpgb(0, pcid, addr, nr - 1, pmd_stride, flags);
 }
 
 /* Flush all mappings for a given PCID, not including globals. */
-static inline void invlpgb_flush_single_pcid(unsigned long pcid)
+static inline void invlpgb_flush_single_pcid_nosync(unsigned long pcid)
 {
 	__invlpgb(0, pcid, 0, 0, 0, INVLPGB_PCID);
 }
@@ -70,10 +88,11 @@ static inline void invlpgb_flush_single_pcid(unsigned long pcid)
 static inline void invlpgb_flush_all(void)
 {
 	__invlpgb(0, 0, 0, 0, 0, INVLPGB_INCLUDE_GLOBAL);
+	tlbsync();
 }
 
 /* Flush addr, including globals, for all PCIDs. */
-static inline void invlpgb_flush_addr(unsigned long addr, int nr)
+static inline void invlpgb_flush_addr_nosync(unsigned long addr, u16 nr)
 {
 	__invlpgb(0, 0, addr, nr - 1, 0, INVLPGB_INCLUDE_GLOBAL);
 }
@@ -82,12 +101,7 @@ static inline void invlpgb_flush_addr(unsigned long addr, int nr)
 static inline void invlpgb_flush_all_nonglobals(void)
 {
 	__invlpgb(0, 0, 0, 0, 0, 0);
-}
-
-/* Wait for INVLPGB originated by this CPU to complete. */
-static inline void tlbsync(void)
-{
-	asm volatile("tlbsync");
+	tlbsync();
 }
 
 #endif /* _ASM_X86_INVLPGB */
