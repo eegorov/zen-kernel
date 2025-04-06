@@ -37,6 +37,8 @@ typedef struct {
 	 */
 	atomic64_t tlb_gen;
 
+	unsigned long next_trim_cpumask;
+
 #ifdef CONFIG_MODIFY_LDT_SYSCALL
 	struct rw_semaphore	ldt_usr_sem;
 	struct ldt_struct	*ldt;
@@ -44,12 +46,6 @@ typedef struct {
 
 #ifdef CONFIG_X86_64
 	unsigned long flags;
-#endif
-
-#ifdef CONFIG_CPU_SUP_AMD
-	struct list_head broadcast_asid_list;
-	u16 broadcast_asid;
-	bool asid_transition;
 #endif
 
 #ifdef CONFIG_ADDRESS_MASKING
@@ -73,6 +69,12 @@ typedef struct {
 	u16 pkey_allocation_map;
 	s16 execute_only_pkey;
 #endif
+
+#ifdef CONFIG_X86_BROADCAST_TLB_FLUSH
+	u16 global_asid;
+	bool asid_transition;
+#endif
+
 } mm_context_t;
 
 #define INIT_MM_CONTEXT(mm)						\
