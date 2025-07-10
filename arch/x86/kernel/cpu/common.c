@@ -1232,6 +1232,8 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 #define ITS		BIT(8)
 /* CPU is affected by Indirect Target Selection, but guest-host isolation is not affected */
 #define ITS_NATIVE_ONLY	BIT(9)
+/* CPU is affected by Transient Scheduler Attacks */
+#define TSA		BIT(10)
 
 static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 	VULNBL_INTEL_STEPS(INTEL_IVYBRIDGE,	     X86_STEP_MAX,	SRBDS),
@@ -1279,7 +1281,7 @@ static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 	VULNBL_AMD(0x16, RETBLEED),
 	VULNBL_AMD(0x17, RETBLEED | SMT_RSB | SRSO),
 	VULNBL_HYGON(0x18, RETBLEED | SMT_RSB | SRSO),
-	VULNBL_AMD(0x19, SRSO),
+	VULNBL_AMD(0x19, SRSO | TSA),
 	VULNBL_AMD(0x1a, SRSO),
 	{}
 };
@@ -1352,51 +1354,9 @@ static bool __init vulnerable_to_its(u64 x86_arch_cap_msr)
 	return false;
 }
 
-static struct x86_cpu_id cpu_latest_microcode[] = {
-#include "microcode/intel-ucode-defs.h"
-	{}
-};
-
-static bool __init cpu_has_old_microcode(void)
-{
-	const struct x86_cpu_id *m = x86_match_cpu(cpu_latest_microcode);
-
-	/* Give unknown CPUs a pass: */
-	if (!m) {
-		/* Intel CPUs should be in the list. Warn if not: */
-		if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL)
-			pr_info("x86/CPU: Model not found in latest microcode list\n");
-		return false;
-	}
-
-	/*
-	 * Hosts usually lie to guests with a super high microcode
-	 * version. Just ignore what hosts tell guests:
-	 */
-	if (boot_cpu_has(X86_FEATURE_HYPERVISOR))
-		return false;
-
-	/* Consider all debug microcode to be old: */
-	if (boot_cpu_data.microcode & BIT(31))
-		return true;
-
-	/* Give new microcode a pass: */
-	if (boot_cpu_data.microcode >= m->driver_data)
-		return false;
-
-	/* Uh oh, too old: */
-	return true;
-}
-
 static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 {
 	u64 x86_arch_cap_msr = x86_read_arch_cap_msr();
-
-	if (cpu_has_old_microcode()) {
-		pr_warn("x86/CPU: Running old microcode\n");
-		setup_force_cpu_bug(X86_BUG_OLD_MICROCODE);
-		add_taint(TAINT_CPU_OUT_OF_SPEC, LOCKDEP_STILL_OK);
-	}
 
 	/* Set ITLB_MULTIHIT bug if cpu is not in the whitelist and not mitigated */
 	if (!cpu_matches(cpu_vuln_whitelist, NO_ITLB_MULTIHIT) &&
@@ -1532,6 +1492,16 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 		setup_force_cpu_bug(X86_BUG_ITS);
 		if (cpu_matches(cpu_vuln_blacklist, ITS_NATIVE_ONLY))
 			setup_force_cpu_bug(X86_BUG_ITS_NATIVE_ONLY);
+	}
+
+	if (c->x86_vendor == X86_VENDOR_AMD) {
+		if (!cpu_has(c, X86_FEATURE_TSA_SQ_NO) ||
+		    !cpu_has(c, X86_FEATURE_TSA_L1_NO)) {
+			if (cpu_matches(cpu_vuln_blacklist, TSA) ||
+			    /* Enable bug on Zen guests to allow for live migration. */
+			    (cpu_has(c, X86_FEATURE_HYPERVISOR) && cpu_has(c, X86_FEATURE_ZEN)))
+				setup_force_cpu_bug(X86_BUG_TSA);
+		}
 	}
 
 	if (cpu_matches(cpu_vuln_whitelist, NO_MELTDOWN))
