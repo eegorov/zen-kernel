@@ -33,7 +33,7 @@
 #include "zcrx.h"
 
 #define IORING_MAX_RESTRICTIONS	(IORING_RESTRICTION_LAST + \
-				 IORING_REGISTER_LAST + IORING_OP_LAST)
+				 IORING_REGISTER_LAST + IORING_OP_EXTRA_LAST)
 
 static __cold int io_probe(struct io_ring_ctx *ctx, void __user *arg,
 			   unsigned nr_args)
@@ -42,8 +42,8 @@ static __cold int io_probe(struct io_ring_ctx *ctx, void __user *arg,
 	size_t size;
 	int i, ret;
 
-	if (nr_args > IORING_OP_LAST)
-		nr_args = IORING_OP_LAST;
+	if (nr_args > IORING_OP_EXTRA_LAST)
+		nr_args = IORING_OP_EXTRA_LAST;
 
 	size = struct_size(p, ops, nr_args);
 	p = kzalloc(size, GFP_KERNEL);
@@ -57,7 +57,7 @@ static __cold int io_probe(struct io_ring_ctx *ctx, void __user *arg,
 	if (memchr_inv(p, 0, size))
 		goto out;
 
-	p->last_op = IORING_OP_LAST - 1;
+	p->last_op = IORING_OP_EXTRA_LAST - 1;
 
 	for (i = 0; i < nr_args; i++) {
 		p->ops[i].op = i;
@@ -133,7 +133,7 @@ static __cold int io_parse_restrictions(void __user *arg, unsigned int nr_args,
 			__set_bit(res[i].register_op, restrictions->register_op);
 			break;
 		case IORING_RESTRICTION_SQE_OP:
-			if (res[i].sqe_op >= IORING_OP_LAST)
+			if (res[i].sqe_op >= IORING_OP_LAST && !(res[i].sqe_op > IORING_OP_EXTRA_BEGIN && res[i].sqe_op < IORING_OP_EXTRA_LAST))
 				goto err;
 			__set_bit(res[i].sqe_op, restrictions->sqe_op);
 			break;
