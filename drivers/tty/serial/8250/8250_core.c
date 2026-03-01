@@ -391,19 +391,21 @@ void __init serial8250_register_ports(struct uart_driver *drv, struct device *de
 #ifdef CONFIG_SERIAL_8250_CONSOLE
 
 static void univ8250_console_write_atomic(struct console *co,
-					  struct nbcon_write_context *wctxt)
+					  struct nbcon_write_context *wctxt,
+					  unsigned int loglevel)
 {
 	struct uart_8250_port *up = &serial8250_ports[co->index];
 
-	serial8250_console_write(up, wctxt, true);
+	serial8250_console_write(up, wctxt, true, loglevel);
 }
 
 static void univ8250_console_write_thread(struct console *co,
-					  struct nbcon_write_context *wctxt)
+					  struct nbcon_write_context *wctxt,
+					  unsigned int loglevel)
 {
 	struct uart_8250_port *up = &serial8250_ports[co->index];
 
-	serial8250_console_write(up, wctxt, false);
+	serial8250_console_write(up, wctxt, false, loglevel);
 }
 
 static void univ8250_console_device_lock(struct console *co, unsigned long *flags)

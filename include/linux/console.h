@@ -337,7 +337,7 @@ struct nbcon_write_context {
  */
 struct console {
 	char			name[16];
-	void			(*write)(struct console *co, const char *s, unsigned int count);
+	void			(*write)(struct console *co, const char *s, unsigned int count, unsigned int level);
 	int			(*read)(struct console *co, char *s, unsigned int count);
 	struct tty_driver	*(*device)(struct console *co, int *index);
 	void			(*unblank)(void);
@@ -385,7 +385,7 @@ struct console {
 	 * Therefore it must avoid usage of any locking and instead rely
 	 * on the console ownership for synchronization.
 	 */
-	void (*write_atomic)(struct console *con, struct nbcon_write_context *wctxt);
+	void (*write_atomic)(struct console *con, struct nbcon_write_context *wctxt, unsigned int level);
 
 	/**
 	 * @write_thread:
@@ -416,7 +416,7 @@ struct console {
 	 *      would never need to spin which is important especially with
 	 *      PREEMPT_RT.
 	 */
-	void (*write_thread)(struct console *con, struct nbcon_write_context *wctxt);
+	void (*write_thread)(struct console *con, struct nbcon_write_context *wctxt, unsigned int level);
 
 	/**
 	 * @device_lock:
@@ -444,7 +444,6 @@ struct console {
 	 * driver does not need it.
 	 */
 	void (*device_lock)(struct console *con, unsigned long *flags);
-
 	/**
 	 * @device_unlock:
 	 *

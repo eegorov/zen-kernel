@@ -141,9 +141,9 @@ static void braille_write(u16 *buf)
 	if (braille_co->flags & CON_NBCON) {
 		nbcon_write_context_set_buf(&wctxt, (char *)data, c - data);
 		if (panic_on_this_cpu())
-			braille_co->write_atomic(braille_co, &wctxt);
+			braille_co->write_atomic(braille_co, &wctxt, 0);
 		else
-			braille_co->write_thread(braille_co, &wctxt);
+			braille_co->write_thread(braille_co, &wctxt, 0);
 	} else {
 		braille_co->write(braille_co, data, c - data);
 	}
