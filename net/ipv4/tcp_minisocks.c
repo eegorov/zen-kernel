@@ -485,9 +485,10 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 		tp->accecn_opt_demand = 1;
 		tcp_ecn_received_counters_payload(sk, skb);
 	} else {
-		tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok ?
-				     TCP_ECN_MODE_RFC3168 :
-				     TCP_ECN_DISABLED);
+		if (inet_rsk(req)->ecn_ok && !tcp_ca_no_fallback_rfc3168(sk))
+			tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
+		else
+			tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 	}
 }
 
@@ -496,6 +497,8 @@ void tcp_ca_openreq_child(struct sock *sk, const struct dst_entry *dst)
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	u32 ca_key = dst_metric(dst, RTAX_CC_ALGO);
 	bool ca_got_dst = false;
+
+	tcp_set_ecn_low_from_dst(sk, dst);
 
 	if (ca_key != TCP_CA_UNSPEC) {
 		const struct tcp_congestion_ops *ca;

@@ -501,6 +501,9 @@ static void tcp_tx_timestamp(struct sock *sk, struct sockcm_cookie *sockc)
 	struct sk_buff *skb = tcp_write_queue_tail(sk);
 	u32 tsflags = sockc->tsflags;
 
+	if (unlikely(!skb))
+		skb = skb_rb_last(&sk->tcp_rtx_queue);
+
 	if (tsflags && skb) {
 		struct skb_shared_info *shinfo = skb_shinfo(skb);
 		struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -3468,6 +3471,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->rx_opt.dsack = 0;
 	tp->rx_opt.num_sacks = 0;
 	tp->rcv_ooopack = 0;
+	tp->fast_ack_mode = 0;
 
 
 	/* Clean up fastopen related fields */
@@ -4248,6 +4252,8 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 		info->tcpi_options |= TCPI_OPT_ECN;
 	if (tp->ecn_flags & TCP_ECN_SEEN)
 		info->tcpi_options |= TCPI_OPT_ECN_SEEN;
+	if (tp->ecn_flags & TCP_ECN_LOW)
+		info->tcpi_options |= TCPI_OPT_ECN_LOW;
 	if (tp->syn_data_acked)
 		info->tcpi_options |= TCPI_OPT_SYN_DATA;
 	if (tp->tcp_usec_ts)

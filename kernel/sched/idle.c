@@ -430,6 +430,7 @@ void cpu_startup_entry(enum cpuhp_state state)
 		do_idle();
 }
 
+#ifndef CONFIG_SCHED_ALT
 /*
  * idle-task scheduling class.
  */
@@ -566,3 +567,4 @@ DEFINE_SCHED_CLASS(idle) = {
 	.switching_to		= switching_to_idle,
 	.update_curr		= update_curr_idle,
 };
+#endif
