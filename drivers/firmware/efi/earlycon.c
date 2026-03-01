@@ -145,7 +145,7 @@ static void efi_earlycon_write_char(u32 *dst, unsigned char c, unsigned int h,
 }
 
 static void
-efi_earlycon_write(struct console *con, const char *str, unsigned int num)
+efi_earlycon_write(struct console *con, const char *str, unsigned int num, unsigned int color)
 {
 	const struct screen_info *si = &sysfb_primary_display.screen;
 	u32 cur_efi_x = efi_x;
