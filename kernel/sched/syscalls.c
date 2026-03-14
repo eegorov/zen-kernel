@@ -325,6 +325,14 @@ static bool check_same_owner(struct task_struct *p)
 		uid_eq(cred->euid, pcred->uid));
 }
 
+#ifdef CONFIG_SCHED_ALT
+static inline void __setscheduler_dl_pi(int newprio, int policy,
+			      struct task_struct *p,
+			      struct sched_change_ctx *scope)
+{
+}
+#endif
+
 #ifndef CONFIG_SCHED_ALT
 
 #ifdef CONFIG_RT_MUTEXES
