@@ -62,6 +62,9 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(ipi_send_cpumask);
  * associated with them) to allow external modules to probe them.
  */
 EXPORT_TRACEPOINT_SYMBOL_GPL(pelt_irq_tp);
+EXPORT_TRACEPOINT_SYMBOL_GPL(sched_entry_tp);
+EXPORT_TRACEPOINT_SYMBOL_GPL(sched_exit_tp);
+EXPORT_TRACEPOINT_SYMBOL_GPL(sched_set_need_resched_tp);
 
 #define sched_feat(x)	(1)
 /*
@@ -957,6 +960,7 @@ void __trace_set_need_resched(struct task_struct *curr, int tif)
 {
 	trace_sched_set_need_resched_tp(curr, smp_processor_id(), tif);
 }
+EXPORT_SYMBOL_GPL(__trace_set_need_resched);
 
 static inline void resched_curr(struct rq *rq)
 {
@@ -2907,7 +2911,7 @@ int task_call_func(struct task_struct *p, task_call_f func, void *arg)
 	ret = func(p, arg);
 
 	if (rq)
-		__task_rq_unlock(rq, &rf);
+		__task_rq_unlock(rq, p, &rf);
 
 	raw_spin_unlock_irqrestore(&p->pi_lock, rf.flags);
 	return ret;
@@ -5259,8 +5263,8 @@ EXPORT_SYMBOL(__cond_resched_rwlock_write);
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
-# ifdef CONFIG_GENERIC_ENTRY
-#  include <linux/entry-common.h>
+# ifdef CONFIG_GENERIC_IRQ_ENTRY
+#  include <linux/irq-entry-common.h>
 # endif
 
 /*
