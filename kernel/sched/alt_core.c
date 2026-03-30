@@ -2911,7 +2911,7 @@ int task_call_func(struct task_struct *p, task_call_f func, void *arg)
 	ret = func(p, arg);
 
 	if (rq)
-		__task_rq_unlock(rq, &rf);
+		__task_rq_unlock(rq, p, &rf);
 
 	raw_spin_unlock_irqrestore(&p->pi_lock, rf.flags);
 	return ret;
@@ -5263,8 +5263,8 @@ EXPORT_SYMBOL(__cond_resched_rwlock_write);
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
-# ifdef CONFIG_GENERIC_ENTRY
-#  include <linux/entry-common.h>
+# ifdef CONFIG_GENERIC_IRQ_ENTRY
+#  include <linux/irq-entry-common.h>
 # endif
 
 /*
