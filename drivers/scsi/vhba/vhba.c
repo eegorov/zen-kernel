@@ -1,7 +1,7 @@
 /*
  * vhba.c
  *
- * Copyright (C) 2007-2012 Chia-I Wu <olvaffe AT gmail DOT com>
+ * Copyright (C) 2007-2026 Chia-I Wu <olvaffe AT gmail DOT com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -471,7 +471,11 @@ static void vhba_free_command (struct vhba_command *vcmd)
     spin_unlock_irqrestore(&vhost->cmd_lock, flags);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+static enum scsi_qc_status vhba_queuecommand (struct Scsi_Host *shost, struct scsi_cmnd *cmd)
+#else
 static int vhba_queuecommand (struct Scsi_Host *shost, struct scsi_cmnd *cmd)
+#endif
 {
     struct vhba_device *vdev;
     int retval;

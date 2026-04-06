@@ -1933,18 +1933,58 @@ preempt_mask_check(cpumask_t *preempt_mask, const cpumask_t *allow_mask, int pri
 
 DEFINE_STATIC_CALL(sched_idle_select_func, cpumask_and);
 
-static inline int select_task_rq(struct task_struct *p)
+static int
+wake_affine_idle(int this_cpu, int prev_cpu, int sync)
+{
+	/*
+	 * If this_cpu is idle, it implies the wakeup is from interrupt
+	 * context. Only allow the move if cache is shared. Otherwise an
+	 * interrupt intensive workload could force all tasks onto one
+	 * node depending on the IO topology or IRQ affinity settings.
+	 *
+	 * If the prev_cpu is idle and cache affine then avoid a migration.
+	 * There is no guarantee that the cache hot data from an interrupt
+	 * is more important than cache hot data on the prev_cpu and from
+	 * a cpufreq perspective, it's better to have higher utilisation
+	 * on one CPU.
+	 */
+	if (available_idle_cpu(this_cpu) && cpus_share_cache(this_cpu, prev_cpu))
+		return available_idle_cpu(prev_cpu) ? prev_cpu : this_cpu;
+
+	if (sync) {
+		struct rq *rq = cpu_rq(this_cpu);
+
+		if (rq->nr_running == 1)
+			return this_cpu;
+	}
+
+	if (available_idle_cpu(prev_cpu))
+		return prev_cpu;
+
+	return nr_cpu_ids;
+}
+
+static inline int select_task_rq(struct task_struct *p, int wake_flags)
 {
 	cpumask_t allow_mask, mask;
+	int prev_cpu = task_cpu(p);
 
 	if (unlikely(!cpumask_and(&allow_mask, p->cpus_ptr, cpu_active_mask)))
-		return select_fallback_rq(task_cpu(p), p);
+		return select_fallback_rq(prev_cpu, p);
+
+	if ((wake_flags & WF_SYNC) && !(current->flags & PF_EXITING)) {
+		int affine_cpu = wake_affine_idle(smp_processor_id(), prev_cpu, true);
+
+		if (affine_cpu < nr_cpu_ids &&
+		    cpumask_test_cpu(affine_cpu, &allow_mask))
+			return affine_cpu;
+	}
 
 	if (static_call(sched_idle_select_func)(&mask, &allow_mask, sched_idle_mask)	||
 	    preempt_mask_check(&mask, &allow_mask, task_sched_prio(p)))
-		return best_mask_cpu(task_cpu(p), &mask);
+		return best_mask_cpu(prev_cpu, &mask);
 
-	return best_mask_cpu(task_cpu(p), &allow_mask);
+	return best_mask_cpu(prev_cpu, &allow_mask);
 }
 
 void sched_set_stop_task(int cpu, struct task_struct *stop)
@@ -2819,7 +2859,7 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		    cpumask_test_cpu(smp_processor_id(), p->cpus_ptr))
 			cpu = smp_processor_id();
 		else
-			cpu = select_task_rq(p);
+			cpu = select_task_rq(p, wake_flags);
 
 		if (cpu != task_cpu(p)) {
 			if (p->in_iowait) {
@@ -3200,7 +3240,7 @@ void wake_up_new_task(struct task_struct *p)
 
 	raw_spin_lock_irqsave(&p->pi_lock, flags);
 	WRITE_ONCE(p->__state, TASK_RUNNING);
-	rq = cpu_rq(select_task_rq(p));
+	rq = cpu_rq(select_task_rq(p, 0));
 	/*
 	 * Fork balancing, do it here and not earlier because:
 	 * - cpus_ptr can change in the fork path
