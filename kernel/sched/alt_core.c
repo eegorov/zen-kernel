@@ -128,6 +128,7 @@ cpumask_t sched_smt_mask ____cacheline_aligned_in_smp;
  * domain, see cpus_share_cache().
  */
 static DEFINE_PER_CPU_READ_MOSTLY(int, sd_llc_id);
+static DEFINE_PER_CPU_READ_MOSTLY(int, sd_llc_size);
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
@@ -1938,6 +1939,53 @@ preempt_mask_check(cpumask_t *preempt_mask, const cpumask_t *allow_mask, int pri
 
 DEFINE_STATIC_CALL(sched_idle_select_func, cpumask_and);
 
+static void record_wakee(struct task_struct *p)
+{
+	/*
+	 * Only decay a single time; tasks that have less then 1 wakeup per
+	 * jiffy will not have built up many flips.
+	 */
+	if (time_after(jiffies, current->wakee_flip_decay_ts + HZ)) {
+		current->wakee_flips >>= 1;
+		current->wakee_flip_decay_ts = jiffies;
+	}
+
+	if (current->last_wakee != p) {
+		current->last_wakee = p;
+		current->wakee_flips++;
+	}
+}
+
+/*
+ * Detect M:N waker/wakee relationships via a switching-frequency heuristic.
+ *
+ * A waker of many should wake a different task than the one last awakened
+ * at a frequency roughly N times higher than one of its wakees.
+ *
+ * In order to determine whether we should let the load spread vs consolidating
+ * to shared cache, we look for a minimum 'flip' frequency of llc_size in one
+ * partner, and a factor of lls_size higher frequency in the other.
+ *
+ * With both conditions met, we can be relatively sure that the relationship is
+ * non-monogamous, with partner count exceeding socket size.
+ *
+ * Waker/wakee being client/server, worker/dispatcher, interrupt source or
+ * whatever is irrelevant, spread criteria is apparent partner count exceeds
+ * socket size.
+ */
+static int wake_wide(struct task_struct *p)
+{
+	unsigned int master = current->wakee_flips;
+	unsigned int slave = p->wakee_flips;
+	int factor = __this_cpu_read(sd_llc_size);
+
+	if (master < slave)
+		swap(master, slave);
+	if (slave < factor || master < slave * factor)
+		return 0;
+	return 1;
+}
+
 static int
 wake_affine_idle(int this_cpu, int prev_cpu, int sync)
 {
@@ -1956,6 +2004,13 @@ wake_affine_idle(int this_cpu, int prev_cpu, int sync)
 	if (available_idle_cpu(this_cpu) && cpus_share_cache(this_cpu, prev_cpu))
 		return available_idle_cpu(prev_cpu) ? prev_cpu : this_cpu;
 
+	/*
+	 * If the previous CPU is cache affine and idle, don't be stupid.
+	 */
+	if (prev_cpu != this_cpu && cpus_share_cache(this_cpu, prev_cpu) &&
+	    available_idle_cpu(prev_cpu))
+		return prev_cpu;
+
 	if (sync) {
 		struct rq *rq = cpu_rq(this_cpu);
 
@@ -1971,25 +2026,58 @@ wake_affine_idle(int this_cpu, int prev_cpu, int sync)
 
 static inline int select_task_rq(struct task_struct *p, int wake_flags)
 {
+	int sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 	cpumask_t allow_mask, mask;
+	int cpu = smp_processor_id();
 	int prev_cpu = task_cpu(p);
+	int new_cpu = prev_cpu;
+	int want_affine = 0;
+	bool wakee_migratable = p->nr_cpus_allowed > 1 && !is_migration_disabled(p);
 
-	if (unlikely(!cpumask_and(&allow_mask, p->cpus_ptr, cpu_active_mask)))
-		return select_fallback_rq(prev_cpu, p);
+	/*
+	 * required for stable ->cpus_allowed
+	 */
+	lockdep_assert_held(&p->pi_lock);
+	if (wake_flags & WF_TTWU) {
+		if (wakee_migratable)
+			record_wakee(p);
 
-	if ((wake_flags & WF_SYNC) && !(current->flags & PF_EXITING)) {
-		int affine_cpu = wake_affine_idle(smp_processor_id(), prev_cpu, true);
+		if ((wake_flags & WF_CURRENT_CPU) &&
+		    cpumask_test_cpu(cpu, p->cpus_ptr)) {
+			new_cpu = cpu;
+			goto out;
+		}
+
+		want_affine = wakee_migratable && !wake_wide(p) &&
+			      cpumask_test_cpu(cpu, p->cpus_ptr);
+	}
+
+	if (unlikely(!cpumask_and(&allow_mask, p->cpus_ptr, cpu_active_mask))) {
+		new_cpu = select_fallback_rq(prev_cpu, p);
+		goto out;
+	}
+
+	if (sync && want_affine) {
+		int affine_cpu = wake_affine_idle(cpu, prev_cpu, sync);
 
 		if (affine_cpu < nr_cpu_ids &&
-		    cpumask_test_cpu(affine_cpu, &allow_mask))
-			return affine_cpu;
+		    cpumask_test_cpu(affine_cpu, &allow_mask)) {
+			new_cpu = affine_cpu;
+			goto out;
+		}
 	}
 
 	if (static_call(sched_idle_select_func)(&mask, &allow_mask, sched_idle_mask)	||
 	    preempt_mask_check(&mask, &allow_mask, task_sched_prio(p)))
-		return best_mask_cpu(prev_cpu, &mask);
+		new_cpu = best_mask_cpu(prev_cpu, &mask);
+	else
+		new_cpu = best_mask_cpu(prev_cpu, &allow_mask);
 
-	return best_mask_cpu(prev_cpu, &allow_mask);
+out:
+	if (unlikely(!is_cpu_allowed(p, new_cpu)))
+		new_cpu = select_fallback_rq(prev_cpu, p);
+
+	return new_cpu;
 }
 
 void sched_set_stop_task(int cpu, struct task_struct *stop)
@@ -2732,6 +2820,8 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	guard(preempt)();
 	int cpu, success = 0;
 
+	wake_flags |= WF_TTWU;
+
 	if (p == current) {
 		/*
 		 * We're waking current, this means 'p->on_rq' and 'task_cpu(p)
@@ -2860,11 +2950,7 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 
 		sched_task_ttwu(p);
 
-		if ((wake_flags & WF_CURRENT_CPU) &&
-		    cpumask_test_cpu(smp_processor_id(), p->cpus_ptr))
-			cpu = smp_processor_id();
-		else
-			cpu = select_task_rq(p, wake_flags);
+		cpu = select_task_rq(p, wake_flags);
 
 		if (cpu != task_cpu(p)) {
 			if (p->in_iowait) {
@@ -6238,6 +6324,7 @@ static void sched_init_topology_cpumask_early(void)
 		cpumask_copy(tmp, cpu_possible_mask);
 		per_cpu(sched_cpu_llc_mask, cpu) = tmp;
 		per_cpu(sched_cpu_topo_end_mask, cpu) = ++tmp;
+		per_cpu(sd_llc_size, cpu) = cpumask_weight(cpu_possible_mask);
 	}
 }
 
@@ -6267,6 +6354,7 @@ static void sched_init_topology_cpumask(void)
 		TOPOLOGY_CPUMASK(cluster, topology_cluster_cpumask(cpu), false);
 
 		per_cpu(sd_llc_id, cpu) = cpumask_first(cpu_coregroup_mask(cpu));
+		per_cpu(sd_llc_size, cpu) = cpumask_weight(cpu_coregroup_mask(cpu));
 		per_cpu(sched_cpu_llc_mask, cpu) = topo;
 		TOPOLOGY_CPUMASK(coregroup, cpu_coregroup_mask(cpu), false);
 
