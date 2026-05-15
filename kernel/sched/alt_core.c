@@ -2011,7 +2011,7 @@ wake_affine_idle(int this_cpu, int prev_cpu, int sync)
 	    available_idle_cpu(prev_cpu))
 		return prev_cpu;
 
-	if (sync) {
+	if (sync && prev_cpu != this_cpu) {
 		struct rq *rq = cpu_rq(this_cpu);
 
 		if (rq->nr_running == 1)
