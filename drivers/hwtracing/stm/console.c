@@ -29,7 +29,7 @@ static struct stm_console {
 };
 
 static void
-stm_console_write(struct console *con, const char *buf, unsigned len)
+stm_console_write(struct console *con, const char *buf, unsigned len, unsigned int color)
 {
 	struct stm_console *sc = container_of(con, struct stm_console, console);
 

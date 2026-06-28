@@ -844,7 +844,7 @@ static void sccnxp_console_putchar(struct uart_port *port, unsigned char c)
 	}
 }
 
-static void sccnxp_console_write(struct console *co, const char *c, unsigned n)
+static void sccnxp_console_write(struct console *co, const char *c, unsigned n, unsigned int color)
 {
 	struct sccnxp_port *s = (struct sccnxp_port *)co->data;
 	struct uart_port *port = &s->port[co->index];
