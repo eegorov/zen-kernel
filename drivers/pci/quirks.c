@@ -15,6 +15,7 @@
 #include <linux/aer.h>
 #include <linux/align.h>
 #include <linux/bitfield.h>
+#include <linux/hex.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/export.h>
@@ -80,11 +81,10 @@ static bool pcie_lbms_seen(struct pci_dev *dev, u16 lnksta)
  * Restrict the speed to 2.5GT/s then with the Target Link Speed field,
  * request a retrain and check the result.
  *
- * If this turns out successful and we know by the Vendor:Device ID it is
- * safe to do so, then lift the restriction, letting the devices negotiate
- * a higher speed.  Also check for a similar 2.5GT/s speed restriction the
- * firmware may have already arranged and lift it with ports that already
- * report their data link being up.
+ * If this turns out successful, or where a 2.5GT/s speed restriction has
+ * been previously arranged by the firmware and the port reports its link
+ * already being up, lift the restriction, in a hope it is safe to do so,
+ * letting the devices negotiate a higher speed.
  *
  * Otherwise revert the speed to the original setting and request a retrain
  * again to remove any residual state, ignoring the result as it's supposed
@@ -95,51 +95,37 @@ static bool pcie_lbms_seen(struct pci_dev *dev, u16 lnksta)
  */
 int pcie_failed_link_retrain(struct pci_dev *dev)
 {
-	static const struct pci_device_id ids[] = {
-		{ PCI_VDEVICE(ASMEDIA, 0x2824) }, /* ASMedia ASM2824 */
-		{}
-	};
-	u16 lnksta, lnkctl2;
+	u16 lnksta, lnkctl2, oldlnkctl2;
 	int ret = -ENOTTY;
+	u32 lnkcap;
 
 	if (!pci_is_pcie(dev) || !pcie_downstream_port(dev) ||
 	    !pcie_cap_has_lnkctl2(dev) || !dev->link_active_reporting)
 		return ret;
 
 	pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+	pcie_capability_read_word(dev, PCI_EXP_LNKCTL2, &oldlnkctl2);
 	if (!(lnksta & PCI_EXP_LNKSTA_DLLLA) && pcie_lbms_seen(dev, lnksta)) {
-		u16 oldlnkctl2;
-
 		pci_info(dev, "broken device, retraining non-functional downstream link at 2.5GT/s\n");
-
-		pcie_capability_read_word(dev, PCI_EXP_LNKCTL2, &oldlnkctl2);
 		ret = pcie_set_target_speed(dev, PCIE_SPEED_2_5GT, false);
-		if (ret) {
-			pci_info(dev, "retraining failed\n");
-			pcie_set_target_speed(dev, PCIE_LNKCTL2_TLS2SPEED(oldlnkctl2),
-					      true);
-			return ret;
-		}
-
-		pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+		if (ret)
+			goto err;
 	}
 
 	pcie_capability_read_word(dev, PCI_EXP_LNKCTL2, &lnkctl2);
-
-	if ((lnksta & PCI_EXP_LNKSTA_DLLLA) &&
-	    (lnkctl2 & PCI_EXP_LNKCTL2_TLS) == PCI_EXP_LNKCTL2_TLS_2_5GT &&
-	    pci_match_id(ids, dev)) {
-		u32 lnkcap;
-
+	pcie_capability_read_dword(dev, PCI_EXP_LNKCAP, &lnkcap);
+	if ((lnkctl2 & PCI_EXP_LNKCTL2_TLS) == PCI_EXP_LNKCTL2_TLS_2_5GT &&
+	    (lnkcap & PCI_EXP_LNKCAP_SLS) != PCI_EXP_LNKCAP_SLS_2_5GB) {
 		pci_info(dev, "removing 2.5GT/s downstream link speed restriction\n");
-		pcie_capability_read_dword(dev, PCI_EXP_LNKCAP, &lnkcap);
 		ret = pcie_set_target_speed(dev, PCIE_LNKCAP_SLS2SPEED(lnkcap), false);
-		if (ret) {
-			pci_info(dev, "retraining failed\n");
-			return ret;
-		}
+		if (ret)
+			goto err;
 	}
 
+	return ret;
+err:
+	pci_info(dev, "retraining failed\n");
+	pcie_set_target_speed(dev, PCIE_LNKCTL2_TLS2SPEED(oldlnkctl2), true);
 	return ret;
 }
 
@@ -3757,106 +3743,6 @@ static void quirk_no_bus_reset(struct pci_dev *dev)
 	dev->dev_flags |= PCI_DEV_FLAGS_NO_BUS_RESET;
 }
 
-static bool acs_on_downstream;
-static bool acs_on_multifunction;
-
-#define NUM_ACS_IDS 16
-struct acs_on_id {
-	unsigned short vendor;
-	unsigned short device;
-};
-static struct acs_on_id acs_on_ids[NUM_ACS_IDS];
-static u8 max_acs_id;
-
-static __init int pcie_acs_override_setup(char *p)
-{
-	if (!p)
-		return -EINVAL;
-
-	while (*p) {
-		if (!strncmp(p, "downstream", 10))
-			acs_on_downstream = true;
-		if (!strncmp(p, "multifunction", 13))
-			acs_on_multifunction = true;
-		if (!strncmp(p, "id:", 3)) {
-			char opt[5];
-			int ret;
-			long val;
-
-			if (max_acs_id >= NUM_ACS_IDS - 1) {
-				pr_warn("Out of PCIe ACS override slots (%d)\n",
-						NUM_ACS_IDS);
-				goto next;
-			}
-
-			p += 3;
-			snprintf(opt, 5, "%s", p);
-			ret = kstrtol(opt, 16, &val);
-			if (ret) {
-				pr_warn("PCIe ACS ID parse error %d\n", ret);
-				goto next;
-			}
-			acs_on_ids[max_acs_id].vendor = val;
-
-			p += strcspn(p, ":");
-			if (*p != ':') {
-				pr_warn("PCIe ACS invalid ID\n");
-				goto next;
-			}
-
-			p++;
-			snprintf(opt, 5, "%s", p);
-			ret = kstrtol(opt, 16, &val);
-			if (ret) {
-				pr_warn("PCIe ACS ID parse error %d\n", ret);
-				goto next;
-			}
-			acs_on_ids[max_acs_id].device = val;
-			max_acs_id++;
-		}
-next:
-		p += strcspn(p, ",");
-		if (*p == ',')
-			p++;
-	}
-
-	if (acs_on_downstream || acs_on_multifunction || max_acs_id)
-		pr_warn("Warning: PCIe ACS overrides enabled; This may allow non-IOMMU protected peer-to-peer DMA\n");
-
-	return 0;
-}
-early_param("pcie_acs_override", pcie_acs_override_setup);
-
-static int pcie_acs_overrides(struct pci_dev *dev, u16 acs_flags)
-{
-	int i;
-
-	/* Never override ACS for legacy devices or devices with ACS caps */
-	if (!pci_is_pcie(dev) ||
-		pci_find_ext_capability(dev, PCI_EXT_CAP_ID_ACS))
-			return -ENOTTY;
-
-	for (i = 0; i < max_acs_id; i++)
-		if (acs_on_ids[i].vendor == dev->vendor &&
-			acs_on_ids[i].device == dev->device)
-				return 1;
-
-	switch (pci_pcie_type(dev)) {
-	case PCI_EXP_TYPE_DOWNSTREAM:
-	case PCI_EXP_TYPE_ROOT_PORT:
-		if (acs_on_downstream)
-			return 1;
-		break;
-	case PCI_EXP_TYPE_ENDPOINT:
-	case PCI_EXP_TYPE_UPSTREAM:
-	case PCI_EXP_TYPE_LEG_END:
-	case PCI_EXP_TYPE_RC_END:
-		if (acs_on_multifunction && dev->multifunction)
-			return 1;
-	}
-
-	return -ENOTTY;
-}
 /*
  * After asserting Secondary Bus Reset to downstream devices via a GB10
  * Root Port, the link may not retrain correctly.
@@ -5182,6 +5068,128 @@ static int  pci_quirk_wangxun_nic_acs(struct pci_dev *dev, u16 acs_flags)
 	}
 
 	return false;
+}
+
+static bool acs_on_downstream;
+static bool acs_on_multifunction;
+
+#define NUM_ACS_IDS 16
+struct acs_on_id {
+	unsigned short vendor;
+	unsigned short device;
+};
+static struct acs_on_id acs_on_ids[NUM_ACS_IDS];
+static u8 max_acs_id;
+
+static int __init pcie_acs_parse_id(const char *p, struct acs_on_id *id)
+{
+	unsigned int val = 0;
+	int i, d;
+
+	if (p[7] != ':')
+		return -EINVAL;
+
+	for (i = 3; i < 12; i++) {
+		if (i == 7)
+			continue;
+		d = hex_to_bin(p[i]);
+		if (d < 0)
+			return -EINVAL;
+		val = (val << 4) | d;
+	}
+
+	id->vendor = val >> 16;
+	id->device = val & 0xffff;
+	return 0;
+}
+
+static int __init pcie_acs_override_setup(char *p)
+{
+	if (!p)
+		return -EINVAL;
+
+	while (*p) {
+		size_t len = strcspn(p, ",");
+
+		if (len == strlen("downstream") &&
+		    !strncmp(p, "downstream", len)) {
+			acs_on_downstream = true;
+		} else if (len == strlen("multifunction") &&
+			   !strncmp(p, "multifunction", len)) {
+			acs_on_multifunction = true;
+		} else if (len == strlen("id:nnnn:nnnn") &&
+			   !strncmp(p, "id:", 3)) {
+			struct acs_on_id id;
+
+			if (pcie_acs_parse_id(p, &id)) {
+				pr_warn("Invalid PCIe ACS override '%.*s'\n",
+					(int)len, p);
+			} else if (max_acs_id >= ARRAY_SIZE(acs_on_ids)) {
+				pr_warn("Out of PCIe ACS override slots (%d)\n",
+					NUM_ACS_IDS);
+			} else {
+				acs_on_ids[max_acs_id++] = id;
+			}
+		} else if (len) {
+			pr_warn("Invalid PCIe ACS override '%.*s'\n",
+				(int)len, p);
+		}
+
+		p += len;
+		if (*p == ',')
+			p++;
+	}
+
+	if (acs_on_downstream || acs_on_multifunction || max_acs_id) {
+		pr_warn("Warning: PCIe ACS overrides enabled; This may allow non-IOMMU protected peer-to-peer DMA\n");
+		add_taint(TAINT_USER, LOCKDEP_STILL_OK);
+	}
+
+	return 0;
+}
+early_param("pcie_acs_override", pcie_acs_override_setup);
+
+static int pcie_acs_overrides(struct pci_dev *dev, u16 acs_flags)
+{
+	int i;
+
+	if (!acs_on_downstream && !acs_on_multifunction && !max_acs_id)
+		return -ENOTTY;
+
+	/* Only answer the IOMMU group isolation query (REQ_ACS_FLAGS) */
+	if (acs_flags != (PCI_ACS_SV | PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_UF))
+		return -ENOTTY;
+
+	/* Never override ACS for legacy devices or devices with ACS caps */
+	if (!pci_is_pcie(dev) || dev->acs_cap)
+		return -ENOTTY;
+
+	if (dev->untrusted || dev->external_facing)
+		return -ENOTTY;
+
+	switch (pci_pcie_type(dev)) {
+	case PCI_EXP_TYPE_DOWNSTREAM:
+	case PCI_EXP_TYPE_ROOT_PORT:
+		if (acs_on_downstream)
+			return 1;
+		break;
+	case PCI_EXP_TYPE_ENDPOINT:
+	case PCI_EXP_TYPE_UPSTREAM:
+	case PCI_EXP_TYPE_LEG_END:
+	case PCI_EXP_TYPE_RC_END:
+		if (acs_on_multifunction && dev->multifunction)
+			return 1;
+		break;
+	default:
+		return -ENOTTY;
+	}
+
+	for (i = 0; i < max_acs_id; i++)
+		if (acs_on_ids[i].vendor == dev->vendor &&
+		    acs_on_ids[i].device == dev->device)
+			return 1;
+
+	return -ENOTTY;
 }
 
 static const struct pci_dev_acs_enabled {

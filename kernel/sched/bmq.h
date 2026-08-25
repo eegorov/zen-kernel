@@ -34,8 +34,6 @@ static inline void deboost_task(struct task_struct *p)
 /*
  * Common interfaces
  */
-static inline void sched_timeslice_imp(const int timeslice_ms) {}
-
 /* This API is used in task_prio(), return value readed by human users */
 static inline int
 task_sched_prio_normal(const struct task_struct *p, const struct rq *rq)
@@ -68,6 +66,11 @@ static inline int sched_rq_prio_idx(struct rq *rq)
 	return rq->prio;
 }
 
+static inline void sched_rq_set_prio(struct rq *rq, int prio)
+{
+	rq->prio = prio;
+}
+
 static inline int task_running_nice(struct task_struct *p)
 {
 	return (p->prio + p->boost_prio > DEFAULT_PRIO);
@@ -90,7 +93,7 @@ static inline void do_sched_yield_type_1(struct task_struct *p, struct rq *rq)
 
 static inline void sched_task_ttwu(struct task_struct *p)
 {
-	s64 delta = this_rq()->clock_task > p->last_ran;
+	s64 delta = this_rq()->clock_task - p->last_ran;
 
 	if (likely(delta > 0))
 		boost_task(p, delta  >> 22);
