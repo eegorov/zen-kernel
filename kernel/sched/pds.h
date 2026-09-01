@@ -13,6 +13,9 @@ static const u64 RT_MASK = ((1ULL << MIN_SCHED_NORMAL_PRIO) - 1);
 
 /* default time slice 4ms -> shift 22, 2 time slice slots -> shift 23 */
 static const int sched_timeslice_shift = 23;
+static const int sched_boost_shift = 21;
+
+#define SCHED_NICE_DELTA(p)	(((p)->static_prio - (MAX_PRIO - NICE_WIDTH)) / 2)
 
 /*
  * Common interfaces
@@ -122,11 +125,26 @@ static inline void sched_update_rq_clock(struct rq *rq)
 	sched_rq_time_edge_advance(rq, old, now);
 }
 
+static inline void sched_task_deadline_reset(struct task_struct *p, const struct rq *rq)
+{
+	if (p->prio >= MIN_NORMAL_PRIO) {
+		p->sleep_credit = 0;
+		p->deadline = rq->time_edge + SCHED_EDGE_DELTA + SCHED_NICE_DELTA(p);
+	}
+}
+
 static inline void sched_task_renew(struct task_struct *p, const struct rq *rq)
 {
-	if (p->prio >= MIN_NORMAL_PRIO)
-		p->deadline = rq->time_edge + SCHED_EDGE_DELTA +
-			      (p->static_prio - (MAX_PRIO - NICE_WIDTH)) / 2;
+	if (p->prio >= MIN_NORMAL_PRIO) {
+		u64 cap = max(SCHED_NICE_DELTA(p) - (NICE_WIDTH / 8 + 1), 0);
+
+		if (p->sleep_credit > cap)
+			p->sleep_credit = cap;
+		if (p->sleep_credit)
+			p->sleep_credit--;
+		p->deadline = rq->time_edge + SCHED_EDGE_DELTA + SCHED_NICE_DELTA(p) -
+			p->sleep_credit;
+	}
 }
 
 static inline void sched_task_sanity_check(struct task_struct *p, struct rq *rq)
@@ -138,16 +156,41 @@ static inline void sched_task_sanity_check(struct task_struct *p, struct rq *rq)
 
 static inline void sched_task_fork(struct task_struct *p, struct rq *rq)
 {
-	sched_task_renew(p, rq);
+	sched_task_deadline_reset(p, rq);
 }
 
 static inline void do_sched_yield_type_1(struct task_struct *p, struct rq *rq)
 {
 	p->time_slice = sysctl_sched_base_slice;
-	sched_task_renew(p, rq);
+	sched_task_deadline_reset(p, rq);
 }
 
-static inline void sched_task_ttwu(struct task_struct *p) {}
-static inline void sched_task_deactivate(struct task_struct *p, struct rq *rq) {}
+static inline void sched_task_ttwu(struct task_struct *p)
+{
+	const struct rq *rq = this_rq();
+	s64 delta = rq->clock - p->sleep_start;
+	s64 credit;
+	u64 boost;
+
+	if (p->prio < MIN_NORMAL_PRIO || !normal_policy(p->policy) ||
+	    unlikely(delta <= 0))
+		return;
+
+	boost = min_t(u64, NICE_WIDTH / 4, (u64)delta >> sched_boost_shift);
+	credit = SCHED_NICE_DELTA(p) - max_t(s64, NICE_WIDTH / 8 + 1,
+					     SCHED_NICE_DELTA(p) - (s64)boost);
+	if (credit <= 0)
+		return;
+
+	p->deadline = min(p->deadline, rq->time_edge + SCHED_EDGE_DELTA +
+				       SCHED_NICE_DELTA(p) - credit);
+	if ((u64)credit > p->sleep_credit)
+		p->sleep_credit = credit;
+}
+
+static inline void sched_task_deactivate(struct task_struct *p, struct rq *rq)
+{
+	p->sleep_start = rq->clock;
+}
 
 #endif /* _KERNEL_SCHED_PDS_H */
