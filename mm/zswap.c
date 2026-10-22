@@ -845,12 +845,14 @@ static int zswap_cpu_comp_prepare(unsigned int cpu, struct hlist_node *node)
 		goto fail;
 	}
 
-	if (zswap_acomp_req_init(&acomp_ctx->comp.areq, acomp_ctx->acomp))
+	ret = zswap_acomp_req_init(&acomp_ctx->comp.areq, acomp_ctx->acomp);
+	if (ret)
 		goto req_fail;
 
 	/* Skip the per-CPU request when decompression can use the stack. */
-	if (!acomp_can_use_stack_req(acomp_ctx->acomp)) {
-		if (zswap_acomp_req_init(&acomp_ctx->decomp, acomp_ctx->acomp))
+	if (acomp_is_async(acomp_ctx->acomp)) {
+		ret = zswap_acomp_req_init(&acomp_ctx->decomp, acomp_ctx->acomp);
+		if (ret)
 			goto req_fail;
 	}
 
