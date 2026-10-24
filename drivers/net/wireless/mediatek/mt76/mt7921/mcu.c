@@ -494,6 +494,9 @@ static int mt7921_load_clc(struct mt792x_dev *dev, const char *fw_name)
 		if (clc->idx >= ARRAY_SIZE(phy->clc))
 			continue;
 
+		if (clc->idx >= ARRAY_SIZE(phy->clc))
+			continue;
+
 		/* do not init buf again if chip reset triggered */
 		if (phy->clc[clc->idx])
 			continue;
