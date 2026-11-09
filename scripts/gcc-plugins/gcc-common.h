@@ -416,7 +416,7 @@ static inline void ipa_remove_stmt_references(symtab_node *referring_node, gimpl
 #ifdef __cplusplus
 static inline void debug_tree(const_tree t)
 {
-	debug_tree(CONST_CAST_TREE(t));
+  debug_tree(const_cast<tree>(t));
 }
 
 static inline void debug_gimple_stmt(const_gimple s)
@@ -424,7 +424,7 @@ static inline void debug_gimple_stmt(const_gimple s)
 	debug_gimple_stmt(CONST_CAST_GIMPLE(s));
 }
 #else
-#define debug_tree(t) debug_tree(CONST_CAST_TREE(t))
+#define debug_tree(t) debug_tree(const_cast<tree>(t))
 #define debug_gimple_stmt(s) debug_gimple_stmt(CONST_CAST_GIMPLE(s))
 #endif
 
