@@ -3409,6 +3409,7 @@ static void serial8250_console_byte_write(struct uart_8250_port *up,
  * Print the console line using the appropriate variant. If ownership is lost
  * at any time during printing, the printing is aborted.
  */
+<<<<<<< HEAD
 static void __serial8250_console_write(struct uart_8250_port *up,
 				       struct nbcon_write_context *wctxt,
 				       bool use_fifo)
@@ -3440,7 +3441,7 @@ static void __serial8250_console_write(struct uart_8250_port *up,
  */
 void serial8250_console_write(struct uart_8250_port *up,
 			      struct nbcon_write_context *wctxt,
-			      bool is_atomic)
+			      bool is_atomic, unsigned int loglevel)
 {
 	struct uart_8250_em485 *em485 = up->em485;
 	struct uart_port *port = &up->port;

@@ -1065,9 +1065,9 @@ static bool nbcon_emit_next_record(struct nbcon_write_context *wctxt, bool use_a
 	wctxt_load_execution_ctx(wctxt, &pmsg);
 
 	if (use_atomic)
-		con->write_atomic(con, wctxt);
+		con->write_atomic(con, wctxt, 0);
 	else
-		con->write_thread(con, wctxt);
+		con->write_thread(con, wctxt, 0);
 
 	if (!wctxt->outbuf) {
 		/*
