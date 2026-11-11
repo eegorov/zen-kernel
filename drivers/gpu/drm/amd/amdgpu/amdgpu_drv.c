@@ -150,6 +150,7 @@ enum AMDGPU_DEBUG_MASK {
 };
 
 unsigned int amdgpu_vram_limit = UINT_MAX;
+int amdgpu_ignore_min_pcap = 0; /* do not ignore by default */
 int amdgpu_vis_vram_limit;
 int amdgpu_gart_size = -1; /* auto */
 int amdgpu_gtt_size = -1; /* auto */
@@ -270,6 +271,15 @@ struct amdgpu_watchdog_timer amdgpu_watchdog_timer = {
 	.timeout_fatal_disable = false,
 	.period = 0x0, /* default to 0x0 (timeout disable) */
 };
+
+/**
+ * DOC: ignore_min_pcap (int)
+ * Ignore the minimum power cap.
+ * Useful on graphics cards where the minimum power cap is very high.
+ * The default is 0 (Do not ignore).
+ */
+MODULE_PARM_DESC(ignore_min_pcap, "Ignore the minimum power cap");
+module_param_named(ignore_min_pcap, amdgpu_ignore_min_pcap, int, 0600);
 
 /**
  * DOC: vramlimit (int)
@@ -2929,19 +2939,6 @@ static int amdgpu_pmops_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static void amdgpu_restore_umd_profile_pstate_after_runpm(struct amdgpu_device *adev)
-{
-	enum amd_dpm_forced_level level;
-	uint32_t profile_mode_mask = AMD_DPM_FORCED_LEVEL_PROFILE_STANDARD |
-		AMD_DPM_FORCED_LEVEL_PROFILE_MIN_SCLK |
-		AMD_DPM_FORCED_LEVEL_PROFILE_MIN_MCLK |
-		AMD_DPM_FORCED_LEVEL_PROFILE_PEAK;
-
-	level = amdgpu_dpm_get_performance_level(adev);
-	if (level & profile_mode_mask)
-		amdgpu_asic_update_umd_stable_pstate(adev, true);
-}
-
 static int amdgpu_pmops_runtime_resume(struct device *dev)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);
@@ -2987,7 +2984,6 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
 	if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX)
 		drm_dev->switch_power_state = DRM_SWITCH_POWER_ON;
 
-	amdgpu_restore_umd_profile_pstate_after_runpm(adev);
 	adev->in_runpm = false;
 	return 0;
 }

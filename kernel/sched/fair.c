@@ -82,10 +82,19 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
  *
  * (default: 0.70 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
+#ifdef CONFIG_ZEN_INTERACTIVE
+unsigned int sysctl_sched_base_slice			= 400000ULL;
+static unsigned int normalized_sysctl_sched_base_slice	= 400000ULL;
+#else
 unsigned int sysctl_sched_base_slice			= 700000ULL;
 static unsigned int normalized_sysctl_sched_base_slice	= 700000ULL;
+#endif
 
+#ifdef CONFIG_ZEN_INTERACTIVE
+__read_mostly unsigned int sysctl_sched_migration_cost	= 300000UL;
+#else
 __read_mostly unsigned int sysctl_sched_migration_cost	= 500000UL;
+#endif
 
 static int __init setup_sched_thermal_decay_shift(char *str)
 {
@@ -128,7 +137,11 @@ int __weak arch_asym_cpu_priority(int cpu)
  *
  * (default: 5 msec, units: microseconds)
  */
+#ifdef CONFIG_ZEN_INTERACTIVE
+static unsigned int sysctl_sched_cfs_bandwidth_slice		= 3000UL;
+#else
 static unsigned int sysctl_sched_cfs_bandwidth_slice		= 5000UL;
+#endif
 #endif
 
 #ifdef CONFIG_NUMA_BALANCING
@@ -2194,7 +2207,7 @@ void init_sched_mm(struct task_struct *p) { }
 static void task_tick_cache(struct rq *rq, struct task_struct *p) { }
 
 static inline int get_pref_llc(struct task_struct *p,
-			       struct mm_struct *mm)
+			       struct sched_cache_group *grp)
 {
 	return -1;
 }
@@ -3713,7 +3726,7 @@ static void update_task_scan_period(struct task_struct *p,
 		p->mm->numa_next_scan = jiffies +
 			msecs_to_jiffies(p->numa_scan_period);
 
-		return;
+		goto out;
 	}
 
 	/*
@@ -3757,7 +3770,10 @@ static void update_task_scan_period(struct task_struct *p,
 
 	p->numa_scan_period = clamp(p->numa_scan_period + diff,
 			task_scan_min(p), task_scan_max(p));
-	memset(p->numa_faults_locality, 0, sizeof(p->numa_faults_locality));
+
+out:
+	memset(p->numa_faults_locality, 0,
+	       sizeof(p->numa_faults_locality));
 }
 
 /*
@@ -10942,6 +10958,8 @@ static inline bool task_misfits_asym_cpu(struct lb_env *env, struct task_struct 
 	return false;
 }
 
+static inline bool sched_asym(struct sched_domain *sd, int dst_cpu, int src_cpu);
+
 /*
  * Check if task p can migrate from source LLC to
  * destination LLC in terms of cache aware load balance.
@@ -10964,6 +10982,10 @@ static enum llc_mig can_migrate_llc_task(struct lb_env *env,
 
 	cpu = READ_ONCE(grp->cpu);
 	if (cpu < 0 || cpus_share_cache(src_cpu, dst_cpu))
+		return mig_unrestricted;
+
+	/* Prioritize asym packing to idle core over cache awareness */
+	if (env->idle && sched_asym(env->sd, dst_cpu, src_cpu))
 		return mig_unrestricted;
 
 	/* skip cache aware load balance for too many threads */
@@ -12160,6 +12182,14 @@ static inline bool llc_balance(struct lb_env *env, struct sg_lb_stats *sgs,
 	 */
 	if ((env->sd->flags & SD_ASYM_CPUCAPACITY) &&
 	    sgs->group_misfit_task_load)
+		return false;
+
+	/*
+	 * On asym packing domains, if the destination CPU
+	 * has higher priority than all CPUs in the source group,
+	 * prioritize asym packing.
+	 */
+	if (sgs->group_asym_packing)
 		return false;
 
 	/*
@@ -13577,11 +13607,11 @@ static int need_active_balance(struct lb_env *env)
 {
 	struct sched_domain *sd = env->sd;
 
-	if (alb_break_llc(env))
-		return 0;
-
 	if (asym_active_balance(env))
 		return 1;
+
+	if (alb_break_llc(env))
+		return 0;
 
 	if (imbalanced_active_balance(env))
 		return 1;

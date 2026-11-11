@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 7
 PATCHLEVEL = 3
-SUBLEVEL = 3
-EXTRAVERSION =
-NAME = Baby Opossum Posse
+SUBLEVEL = 4
+EXTRAVERSION = -zen
+NAME = Channeling Inner Peace for Peak Performance
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -932,6 +932,9 @@ KBUILD_CFLAGS	+= -fno-delete-null-pointer-checks
 ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
 KBUILD_CFLAGS += -O2
 KBUILD_RUSTFLAGS += -Copt-level=2
+else ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3
+KBUILD_CFLAGS += -O3
+KBUILD_RUSTFLAGS += -Copt-level=3
 else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS += -Os
 KBUILD_RUSTFLAGS += -Copt-level=s

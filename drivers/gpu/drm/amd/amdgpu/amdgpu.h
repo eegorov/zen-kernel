@@ -157,6 +157,7 @@ struct amdgpu_watchdog_timer {
  */
 extern int amdgpu_modeset;
 extern unsigned int amdgpu_vram_limit;
+extern int amdgpu_ignore_min_pcap;
 extern int amdgpu_vis_vram_limit;
 extern int amdgpu_gart_size;
 extern int amdgpu_gtt_size;
@@ -834,8 +835,17 @@ struct amdgpu_device {
 	struct mutex	mn_lock;
 	DECLARE_HASHTABLE(mn_hash, 7);
 
-	/* tracking pinned memory */
+	/* tracking pinned memory
+	 *
+	 *	vram_pin_size = sum(vram_pin_size_xcp[]) + vram_pin_size_common
+	 *
+	 * vram_pin_size         total pin size in device
+	 * vram_pin_size_xcp[i]  pins owned by partition i (bo->xcp_id = i, i >= 0)
+	 * vram_pin_size_common  pins not owned by any partition, bo->xcp_id = -1
+	 */
 	atomic64_t vram_pin_size;
+	atomic64_t vram_pin_size_xcp[MAX_XCP];
+	atomic64_t vram_pin_size_common;
 	atomic64_t visible_pin_size;
 	atomic64_t gart_pin_size;
 
