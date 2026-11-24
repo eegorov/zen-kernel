@@ -929,6 +929,7 @@ static inline void __resched_curr(struct rq *rq, int tif)
 {
 	struct task_struct *curr = rq->curr;
 	struct thread_info *cti = task_thread_info(curr);
+	bool need_ipi;
 	int cpu;
 
 	lockdep_assert_rq_held(rq);
@@ -945,15 +946,17 @@ static inline void __resched_curr(struct rq *rq, int tif)
 
 	cpu = cpu_of(rq);
 
-	trace_sched_set_need_resched_tp(curr, cpu, tif);
 	if (cpu == smp_processor_id()) {
 		set_ti_thread_flag(cti, tif);
 		if (tif == TIF_NEED_RESCHED)
 			set_preempt_need_resched();
+		trace_sched_set_need_resched_tp(curr, cpu, tif);
 		return;
 	}
 
-	if (set_nr_and_not_polling(cti, tif)) {
+	need_ipi = set_nr_and_not_polling(cti, tif);
+	trace_sched_set_need_resched_tp(curr, cpu, tif);
+	if (need_ipi) {
 		if (tif == TIF_NEED_RESCHED)
 			smp_send_reschedule(cpu);
 	} else {
@@ -2067,6 +2070,17 @@ wake_affine_idle(int this_cpu, int prev_cpu, int sync)
 	return nr_cpu_ids;
 }
 
+static inline bool sched_preempt_victim(int cpu)
+{
+	struct task_struct *curr;
+
+	guard(rcu)();
+	curr = rcu_dereference(cpu_rq(cpu)->curr);
+
+	return !rt_task(curr) && !sched_task_has_credit(curr) &&
+	       !test_tsk_need_resched(curr);
+}
+
 static inline int select_task_rq(struct task_struct *p, int wake_flags)
 {
 	int sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
@@ -2121,7 +2135,8 @@ static inline int select_task_rq(struct task_struct *p, int wake_flags)
 		else if (!available_idle_cpu(affine_cpu) &&
 			 ((affine_cpu != cpu &&
 			   (rt_task(p) || sched_task_has_credit(p)) &&
-			   task_sched_prio(p) >= cpu_rq(affine_cpu)->prio) ||
+			   (task_sched_prio(p) >= cpu_rq(affine_cpu)->prio ||
+			    !sched_preempt_victim(affine_cpu))) ||
 			  (cpu_rq(cpu)->nr_running + cpu_rq(affine_cpu)->nr_running > 3 &&
 			   cpumask_intersects(&allow_mask, sched_idle_mask))))
 			affine_cpu = nr_cpu_ids;
@@ -2148,14 +2163,10 @@ static inline int select_task_rq(struct task_struct *p, int wake_flags)
 	if (preempt_mask_check(&mask, &allow_mask, prio)) {
 		int preempt_cpu = nr_cpu_ids;
 
-		guard(rcu)();
 		do {
 			new_cpu = best_mask_cpu(prev_cpu, &mask);
 			if (prio < cpu_rq(new_cpu)->prio) {
-				struct task_struct *curr = rcu_dereference(cpu_rq(new_cpu)->curr);
-
-				if (!rt_task(curr) && !sched_task_has_credit(curr) &&
-				    !test_tsk_need_resched(curr))
+				if (sched_preempt_victim(new_cpu))
 					goto out;
 				if (preempt_cpu >= nr_cpu_ids)
 					preempt_cpu = new_cpu;
@@ -7834,11 +7845,10 @@ static void __mm_update_max_cids(struct mm_mm_cid *mc)
 
 static inline unsigned int mm_cid_calc_pcpu_thrs(struct mm_mm_cid *mc)
 {
-	unsigned int opt_cids;
+	unsigned int nr_cpus = mc->nr_cpus_allowed;
 
-	opt_cids = min(mc->nr_cpus_allowed, mc->users);
 	/* Has to be at least 1 because 0 indicates PCPU mode off */
-	return max(min(opt_cids - opt_cids / 4, num_possible_cpus() / 2), 1);
+	return max(min(nr_cpus - nr_cpus / 4, num_possible_cpus() / 2), 1);
 }
 
 static bool mm_update_max_cids(struct mm_struct *mm)
